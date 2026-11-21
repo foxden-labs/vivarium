@@ -1,0 +1,1457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content">
+<meta name="theme-color" content="#000000">
+<title>Vivarium</title>
+<link rel="stylesheet" href="vivarium/fonts.css">
+<style>
+/* ═════════════════════════════════════════════════════════════════
+   VIVARIUM
+   Keeps single-file HTML tools and runs each one behind its own glass.
+
+   Every tool gets its own origin, https://<id>.vivarium.localhost, served
+   by the app itself (native/ToolServer.java). Different hostname, different
+   origin, so localStorage, IndexedDB and caches are separate per tool and
+   separate from this launcher. Tools never see each other's data.
+
+   This page only keeps the files, shows the shelf, and hosts a tool in a
+   full-screen frame. It talks to the tool through vivarium/shim.js, which the
+   server splices into the tool page, and through vivarium/keeper.html for
+   reading or wiping a tool's storage without opening it.
+   ═════════════════════════════════════════════════════════════════ */
+
+:root {
+  --bg:        #000000;
+  --bg-raised: #0b0b0c;
+  --bg-card:   #0e0e10;
+  --bg-elev:   #17181b;
+  --line:      #26282d;
+  --line-soft: #17181b;
+  --ink:       #ebe6dc;
+  --ink-soft:  #a8a39a;
+  --ink-dim:   #5e5d5a;
+  --fox:       #f97316;
+  --fox-glow:  #ff8a3d;
+  --danger:    #d65540;
+  --ok:        #7ec77a;
+
+  --sans: "Helvetica Neue", "Helvetica", "Arial", sans-serif;
+  --mono: "JetBrains Mono", "SF Mono", "Menlo", "Consolas", monospace;
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --out:  cubic-bezier(0.2, 0.8, 0.2, 1);
+  --pad: 16px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: var(--bg); color: var(--ink); height: 100%; }
+body {
+  font-family: var(--sans);
+  -webkit-tap-highlight-color: transparent;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; touch-action: manipulation; }
+input { font: inherit; color: inherit; }
+svg { display: block; }
+
+/* ---- Top ---- */
+#app { min-height: 100%; display: flex; flex-direction: column; }
+.top {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px var(--pad) 12px;
+  background: linear-gradient(var(--bg) 78%, rgba(0,0,0,0));
+}
+.brand { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
+.brand-mark { width: 22px; height: 22px; flex-shrink: 0; }
+.brand-word {
+  font-weight: 700; font-size: 14px; letter-spacing: 4.2px; text-transform: uppercase;
+}
+.top-btn {
+  height: 34px; min-width: 34px; padding: 0 10px;
+  border: 1px solid var(--line);
+  font-family: var(--sans); font-size: 10px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase;
+  color: var(--ink-soft);
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  transition: border-color 160ms var(--ease), color 160ms var(--ease), transform 120ms var(--ease);
+}
+.top-btn:active { transform: scale(0.95); border-color: var(--fox); color: var(--ink); }
+.top-btn.add { color: var(--fox); border-color: var(--fox); padding: 0; width: 34px; }
+.top-btn.add svg { width: 14px; height: 14px; }
+.sort-label { display: inline-block; min-width: 4.2em; text-align: center; }
+
+.census {
+  display: flex; gap: 14px; flex-wrap: wrap;
+  padding: 0 var(--pad) 14px;
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.6px; color: var(--ink-dim);
+  text-transform: uppercase;
+}
+.census b { color: var(--ink-soft); font-weight: 500; }
+
+/* ---- Shelf ---- */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  gap: 10px;
+  padding: 0 var(--pad) calc(var(--pad) + 40px);
+}
+.tile {
+  --accent: var(--fox);
+  position: relative;
+  aspect-ratio: 1 / 1.02;
+  display: flex; flex-direction: column; justify-content: flex-end; align-items: flex-start;
+  padding: 14px 13px 12px;
+  text-align: left;
+  background: var(--bg-card);
+  border: 1px solid var(--line-soft);
+  overflow: hidden;
+  transition: transform 140ms var(--ease), border-color 160ms var(--ease), background 160ms var(--ease);
+  animation: tileIn 420ms var(--out) both;
+  animation-delay: calc(var(--i, 0) * 32ms);
+}
+.tile::before {   /* accent strip */
+  content: ''; position: absolute; left: 0; top: 0; height: 2px; width: 34%;
+  background: var(--accent);
+  transition: width 320ms var(--out);
+}
+.tile:active, .tile.pressing { transform: scale(0.97); border-color: var(--accent); background: var(--bg-raised); }
+.tile:active::before, .tile.pressing::before { width: 100%; }
+.tile.fresh { animation: tileIn 420ms var(--out) both, fresh 1400ms var(--ease) 380ms both; }
+@keyframes tileIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes fresh {
+  0%, 100% { box-shadow: inset 0 0 0 0 transparent; }
+  25% { box-shadow: inset 0 0 0 1px var(--accent), 0 0 24px -6px var(--accent); }
+}
+.tile-icon {
+  position: absolute; left: 13px; top: 16px;
+  width: 44px; height: 44px;
+  display: grid; place-items: center;
+  color: var(--accent);
+}
+.tile-icon img, .tile-icon svg { width: 100%; height: 100%; object-fit: contain; image-rendering: auto; }
+.tile-pip {   /* lit when the tool has saved data: someone lives here */
+  position: absolute; right: 12px; top: 14px;
+  width: 6px; height: 6px; background: var(--accent);
+  animation: breathe 3.6s ease-in-out infinite;
+  animation-delay: calc(var(--i, 0) * -0.7s);
+}
+@keyframes breathe { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+.tile-name {
+  font-weight: 700; font-size: 13px; letter-spacing: 1.6px; text-transform: uppercase;
+  line-height: 1.25; width: 100%;
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  word-break: break-word;
+}
+.tile-meta {
+  margin-top: 5px; width: 100%;
+  font-family: var(--mono); font-size: 10px; color: var(--ink-dim); letter-spacing: 0.3px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.tile.adder {
+  border: 1px dashed var(--line);
+  background: transparent;
+  justify-content: center; align-items: center; gap: 8px;
+  color: var(--ink-dim);
+}
+.tile.adder::before { display: none; }
+.tile.adder svg { width: 18px; height: 18px; color: var(--fox); }
+.tile.adder span { font-size: 10px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; }
+.tile.adder:active { border-color: var(--fox); color: var(--ink-soft); }
+
+/* ---- Empty ---- */
+.empty {
+  flex: 1;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
+  padding: 30px var(--pad) 80px; text-align: center;
+}
+.empty-jar { width: 132px; height: 132px; opacity: 0.9; }
+.empty-title { font-weight: 700; font-size: 13px; letter-spacing: 3px; text-transform: uppercase; }
+.empty-text { font-family: var(--mono); font-size: 12px; line-height: 1.7; color: var(--ink-dim); max-width: 320px; }
+.empty-text b { color: var(--ink-soft); font-weight: 500; }
+
+/* ---- Buttons ---- */
+.btn {
+  height: 44px; padding: 0 18px;
+  border: 1px solid var(--line);
+  font-size: 11px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  transition: transform 120ms var(--ease), border-color 160ms var(--ease), background 160ms var(--ease);
+}
+.btn:active { transform: scale(0.97); }
+.btn svg { width: 14px; height: 14px; flex-shrink: 0; }
+.btn.primary { background: var(--fox); border-color: var(--fox); color: #000; }
+.btn.danger { border-color: var(--danger); color: var(--danger); }
+.btn.ghost { color: var(--ink-soft); }
+
+/* ---- Sheet ---- */
+.scrim {
+  position: fixed; inset: 0; z-index: 40;
+  background: rgba(0,0,0,0.66);
+  opacity: 0; transition: opacity 220ms var(--ease);
+}
+.scrim.in { opacity: 1; }
+.sheet {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 41;
+  max-height: 88vh; overflow-y: auto; overscroll-behavior: contain;
+  background: var(--bg-raised);
+  border-top: 1px solid var(--line);
+  transform: translateY(100%);
+  transition: transform 300ms var(--out);
+  padding-bottom: 10px;
+}
+.sheet.in { transform: none; }
+.sheet::before {   /* accent edge */
+  content: ''; position: absolute; left: 0; top: -1px; height: 2px; width: 100%;
+  background: var(--accent, var(--fox));
+  transform-origin: left; transform: scaleX(0);
+  transition: transform 520ms var(--out) 120ms;
+}
+.sheet.in::before { transform: scaleX(1); }
+.sheet-head { display: flex; gap: 14px; align-items: center; padding: 20px var(--pad) 14px; }
+.sheet-icon { width: 46px; height: 46px; flex-shrink: 0; color: var(--accent, var(--fox)); }
+.sheet-icon img, .sheet-icon svg { width: 100%; height: 100%; object-fit: contain; }
+.sheet-title { font-weight: 700; font-size: 16px; letter-spacing: 1.8px; text-transform: uppercase; line-height: 1.25; word-break: break-word; }
+.sheet-host { margin-top: 4px; font-family: var(--mono); font-size: 10.5px; color: var(--ink-dim); word-break: break-all; }
+.stats {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  margin: 0 var(--pad) 8px;
+  border-top: 1px solid var(--line-soft); border-left: 1px solid var(--line-soft);
+}
+.stat { padding: 9px 10px; border-right: 1px solid var(--line-soft); border-bottom: 1px solid var(--line-soft); min-width: 0; }
+.stat-k { font-size: 9px; font-weight: 700; letter-spacing: 1.8px; text-transform: uppercase; color: var(--ink-dim); }
+.stat-v { margin-top: 3px; font-family: var(--mono); font-size: 12px; color: var(--ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stat-v.live { color: var(--ink); }
+.row {
+  width: 100%; display: flex; align-items: center; gap: 14px;
+  padding: 0 var(--pad); min-height: 52px; text-align: left;
+  border-bottom: 1px solid var(--line-soft);
+  transition: background 140ms var(--ease);
+}
+.row:active { background: var(--bg-elev); }
+.row-ico { width: 18px; height: 18px; color: var(--ink-dim); flex-shrink: 0; }
+.row-main { flex: 1; min-width: 0; }
+.row-title { font-size: 12px; font-weight: 700; letter-spacing: 1.4px; text-transform: uppercase; }
+.row-sub { margin-top: 2px; font-family: var(--mono); font-size: 10.5px; color: var(--ink-dim); }
+.row.danger .row-title, .row.danger .row-ico { color: var(--danger); }
+.row:disabled { opacity: 0.35; }
+.switch { width: 34px; height: 18px; border: 1px solid var(--line); position: relative; flex-shrink: 0; transition: border-color 160ms var(--ease); }
+.switch::after {
+  content: ''; position: absolute; top: 3px; left: 3px; width: 10px; height: 10px; background: var(--ink-dim);
+  transition: transform 200ms var(--out), background 160ms var(--ease);
+}
+.row.on .switch { border-color: var(--fox); }
+.row.on .switch::after { transform: translateX(16px); background: var(--fox); }
+
+/* ---- Popup ---- */
+.pop-host { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; padding: 24px; }
+.pop-host .scrim { z-index: 0; position: absolute; }
+.pop {
+  position: relative; width: 100%; max-width: 380px;
+  background: var(--bg-raised); border: 1px solid var(--line);
+  padding: 20px var(--pad) 16px;
+  transform: translateY(8px) scale(0.98); opacity: 0;
+  transition: transform 240ms var(--out), opacity 200ms var(--ease);
+}
+.pop.in { transform: none; opacity: 1; }
+.pop-title { font-weight: 700; font-size: 14px; letter-spacing: 1.6px; text-transform: uppercase; margin-bottom: 10px; }
+.pop-body { font-family: var(--mono); font-size: 12px; line-height: 1.65; color: var(--ink-soft); }
+.pop-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 18px; }
+.pop-input {
+  width: 100%; height: 44px; padding: 0 12px; margin-top: 4px;
+  background: var(--bg); border: 1px solid var(--line); outline: none;
+  font-family: var(--mono); font-size: 14px; user-select: text; -webkit-user-select: text;
+}
+.pop-input:focus { border-color: var(--fox); }
+
+/* ---- Toast ---- */
+.toast {
+  position: fixed; left: 50%; bottom: 22px; z-index: 80;
+  max-width: calc(100% - 32px);
+  transform: translate(-50%, 12px); opacity: 0;
+  background: var(--bg-elev); border: 1px solid var(--line); border-left: 2px solid var(--fox);
+  padding: 11px 14px;
+  font-family: var(--mono); font-size: 11.5px; color: var(--ink);
+  transition: transform 240ms var(--out), opacity 200ms var(--ease);
+  pointer-events: none;
+}
+.toast.in { transform: translate(-50%, 0); opacity: 1; }
+
+/* ---- Tool layer (same choreography as the Den's Workshop) ---- */
+.tool-layer { position: fixed; inset: 0; z-index: 60; display: flex; background: var(--bg); }
+.tool-stage { position: relative; flex: 1; overflow: hidden; }
+.tool-frame {
+  position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block;
+  background: var(--bg);
+  opacity: 0; transition: opacity 280ms var(--ease);
+}
+.tool-layer.ready .tool-frame { opacity: 1; }
+.tool-layer.ready.saving .tool-frame { opacity: 0.12; }
+.tool-card {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+  pointer-events: none;
+  transition: opacity 280ms var(--ease), transform 280ms var(--ease);
+}
+.tool-layer.ready .tool-card { opacity: 0; transform: scale(0.97); }
+.tool-layer.ready.saving .tool-card { opacity: 1; transform: none; }
+.tool-card-icon { width: 48px; height: 48px; color: var(--accent, var(--fox)); animation: cardBreathe 1.6s ease-in-out infinite; }
+.tool-card-icon img, .tool-card-icon svg { width: 100%; height: 100%; object-fit: contain; }
+.tool-card-name { font-weight: 700; font-size: 15px; letter-spacing: 3px; text-transform: uppercase; }
+.tool-card-status { font-size: 9.5px; font-weight: 700; letter-spacing: 2.6px; text-transform: uppercase; color: var(--ink-dim); }
+.tool-card-bar { width: 120px; height: 2px; background: var(--line-soft); overflow: hidden; }
+.tool-card-bar > div { width: 40%; height: 100%; background: var(--accent, var(--fox)); animation: scan 1.1s var(--ease) infinite; }
+@keyframes scan { from { transform: translateX(-100%); } to { transform: translateX(260%); } }
+@keyframes cardBreathe { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+
+.keeper { position: fixed; width: 1px; height: 1px; left: -10px; top: -10px; border: 0; opacity: 0; pointer-events: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition-duration: 1ms !important; }
+}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+(function () {
+  'use strict';
+
+  /* ═════════════════════════════════════════════════════════════════
+     PLATFORM
+     ═════════════════════════════════════════════════════════════════ */
+
+  const Cap = window.Capacitor;
+  const NATIVE = !!(Cap && Cap.isNativePlatform && Cap.isNativePlatform());
+  const plug = (n) => (Cap && Cap.Plugins && Cap.Plugins[n]) || null;
+  const HOST_SUFFIX = '.vivarium.localhost';
+  const toolOrigin = (id) => 'https://' + id + HOST_SUFFIX;
+  const MAX_BYTES = 25 * 1048576;
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  function haptic(ms) {
+    ms = ms || 10;
+    const H = plug('Haptics');
+    if (NATIVE && H) { try { H.vibrate({ duration: ms }).catch(() => {}); } catch (e) {} return; }
+    if (navigator.vibrate) { try { navigator.vibrate(ms); } catch (e) {} }
+  }
+
+  /* ----- Storage -----
+     On the phone everything is plain files in the app's private storage:
+       library.json            the shelf
+       tools/<id>/tool.html    each tool, exactly as imported
+       inbox/                  files that arrived through Open with / Share
+     The native server reads tools/<id>/tool.html directly. In a desktop
+     browser (previewing this page) the same calls go to IndexedDB. */
+  const store = NATIVE ? (() => {
+    const FS = plug('Filesystem');
+    return {
+      async read(path) { return (await FS.readFile({ path, directory: 'DATA', encoding: 'utf8' })).data; },
+      async write(path, data) { await FS.writeFile({ path, data, directory: 'DATA', encoding: 'utf8', recursive: true }); },
+      async remove(path) { try { await FS.deleteFile({ path, directory: 'DATA' }); } catch (e) {} },
+      async removeDir(path) { try { await FS.rmdir({ path, directory: 'DATA', recursive: true }); } catch (e) {} },
+      async list(path) {
+        try {
+          const r = await FS.readdir({ path, directory: 'DATA' });
+          return (r.files || []).map((f) => typeof f === 'string' ? f : f.name);
+        } catch (e) { return []; }
+      }
+    };
+  })() : (() => {
+    let dbp = null;
+    const db = () => dbp || (dbp = new Promise((res, rej) => {
+      const r = indexedDB.open('vivarium-preview', 1);
+      r.onupgradeneeded = () => r.result.createObjectStore('files');
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => rej(r.error);
+    }));
+    const tx = async (mode, fn) => {
+      const d = await db();
+      return new Promise((res, rej) => {
+        const t = d.transaction('files', mode);
+        const out = fn(t.objectStore('files'));
+        t.oncomplete = () => res(out && 'result' in out ? out.result : undefined);
+        t.onerror = () => rej(t.error);
+      });
+    };
+    return {
+      async read(path) { const v = await tx('readonly', (s) => s.get(path)); if (v == null) throw new Error('missing'); return v; },
+      async write(path, data) { await tx('readwrite', (s) => s.put(data, path)); },
+      async remove(path) { await tx('readwrite', (s) => s.delete(path)); },
+      async removeDir(path) { await tx('readwrite', (s) => s.delete(IDBKeyRange.bound(path + '/', path + '/￿'))); },
+      async list(path) {
+        const keys = await tx('readonly', (s) => s.getAllKeys(IDBKeyRange.bound(path + '/', path + '/￿')));
+        return (keys || []).map((k) => k.slice(path.length + 1)).filter((k) => !k.includes('/'));
+      }
+    };
+  })();
+
+  /* ═════════════════════════════════════════════════════════════════
+     LIBRARY
+     ═════════════════════════════════════════════════════════════════ */
+
+  let lib = { v: 1, sort: 'recent', tools: [] };
+  /* tool: { id, name, title, size, hash, icon, accent, added, updated,
+             opened, opens, usage, immersive } */
+
+  async function loadLibrary() {
+    try {
+      const raw = JSON.parse(await store.read('library.json'));
+      if (raw && Array.isArray(raw.tools)) lib = Object.assign({ v: 1, sort: 'recent' }, raw);
+    } catch (e) { /* first run */ }
+  }
+  let saveChain = Promise.resolve();
+  function saveLibrary() {
+    saveChain = saveChain.then(() => store.write('library.json', JSON.stringify(lib))).catch(() => toast('Could not save the shelf'));
+    return saveChain;
+  }
+  const byId = (id) => lib.tools.find((t) => t.id === id) || null;
+
+  /* ----- Reading a tool file ----- */
+
+  function decodeEntities(s) {
+    const ta = document.createElement('textarea');
+    ta.innerHTML = s;
+    return ta.value;
+  }
+
+  function titleOf(html, fileName) {
+    const m = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+    let t = m ? decodeEntities(m[1]).replace(/\s+/g, ' ').trim() : '';
+    if (!t) t = (fileName || '').replace(/\.[^.]+$/, '').replace(/^\d+-\d+-/, '').replace(/[-_]+/g, ' ').trim();
+    return t || 'Untitled tool';
+  }
+  // "VulpesTech Almagest" sits on the shelf as Almagest.
+  const shelfName = (title) => (title.replace(/^vulpestech\s*[:\-|·]?\s*/i, '').trim() || title).slice(0, 48);
+
+  function slug(name) {
+    const s = name.toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '')
+      .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40).replace(/-+$/, '');
+    return s || 'tool';
+  }
+
+  function iconOf(html) {
+    const head = html.slice(0, 400000);
+    const links = head.match(/<link\b[^>]*>/gi) || [];
+    for (const l of links) {
+      if (!/\brel\s*=\s*["']?[^"'>]*icon/i.test(l)) continue;
+      const h = l.match(/\bhref\s*=\s*("([^"]*)"|'([^']*)')/i);
+      const href = h ? (h[2] || h[3] || '') : '';
+      if (/^data:image\//i.test(href) && href.length < 200000) return decodeEntities(href);
+    }
+    return null;
+  }
+
+  function accentOf(html) {
+    const m = html.slice(0, 200000).match(/<meta\b[^>]*name\s*=\s*["']?theme-color["']?[^>]*>/i);
+    const c = m && m[0].match(/content\s*=\s*["']?\s*(#[0-9a-f]{3,8})/i);
+    if (!c) return null;
+    let hex = c[1].slice(1);
+    if (hex.length === 3 || hex.length === 4) hex = hex.slice(0, 3).split('').map((x) => x + x).join('');
+    hex = hex.slice(0, 6);
+    const n = parseInt(hex, 16);
+    const r = n >> 16 & 255, g = n >> 8 & 255, b = n & 255;
+    const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+    const sat = Math.max(r, g, b) - Math.min(r, g, b);
+    // Near-black or grey theme colours would vanish on the shelf.
+    if (lum < 0.22 || sat < 40) return null;
+    return '#' + hex;
+  }
+
+  async function sha(text) {
+    try {
+      const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+      return [...new Uint8Array(buf)].slice(0, 12).map((b) => b.toString(16).padStart(2, '0')).join('');
+    } catch (e) {
+      let h = 2166136261;
+      for (let i = 0; i < text.length; i++) { h ^= text.charCodeAt(i); h = Math.imul(h, 16777619); }
+      return (h >>> 0).toString(16) + ':' + text.length;
+    }
+  }
+
+  const looksLikeHtml = (s) => /<(!doctype|html|head|body|script)\b/i.test(s.slice(0, 200000));
+  const byteLen = (s) => new Blob([s]).size;
+
+  /* ═════════════════════════════════════════════════════════════════
+     DRAWING
+     ═════════════════════════════════════════════════════════════════ */
+
+  function el(tag, attrs, ...kids) {
+    const e = document.createElement(tag);
+    if (attrs) for (const k in attrs) {
+      const v = attrs[k];
+      if (v == null || v === false) continue;
+      if (k === 'class') e.className = v;
+      else if (k === 'style' && typeof v === 'object') {
+        for (const sk in v) {
+          if (v[sk] == null) continue;
+          if (sk.startsWith('--')) e.style.setProperty(sk, String(v[sk]));
+          else e.style[sk] = v[sk];
+        }
+      }
+      else if (k.startsWith('on') && typeof v === 'function') e.addEventListener(k.slice(2), v);
+      else e.setAttribute(k, v === true ? '' : v);
+    }
+    for (const c of kids.flat()) if (c != null && c !== false) e.append(c.nodeType ? c : String(c));
+    return e;
+  }
+  function svgEl(markup) {
+    const t = document.createElement('template');
+    t.innerHTML = markup.trim();
+    return t.content.firstChild;
+  }
+
+  /* The bell jar, same pixel grammar as the Den's crest. Also the app icon. */
+  const JAR = [
+    '..........CCC..........',
+    '.........OCCCO.........',
+    '.......OO.....OO.......',
+    '.....OO.........OO.....',
+    '....O.............O....',
+    '...O...G...........O...',
+    '...O..G............O...',
+    '..O..G..............O..',
+    '..O..G..............O..',
+    '..O.G...............O..',
+    '..O.G........OO.....O..',
+    '..O.........OOO.....O..',
+    '..O.....OO.CO.......O..',
+    '..O.....OOOC........O..',
+    '..O......OOC........O..',
+    '..O........C........O..',
+    '..O........C........O..',
+    '..O.......CCC.......O..',
+    '..O.....GGGGGGG.....O..',
+    '.OOOOOOOOOOOOOOOOOOOOO.',
+    '.CCCCCCCCCCCCCCCCCCCCC.'
+  ];
+  function jarSvg(cls) {
+    const COL = { O: 'var(--fox)', C: 'var(--ink)', G: '#8e8a84' };
+    const W = 23, H = 21;
+    let r = '';
+    JAR.forEach((row, y) => [...row].forEach((ch, x) => {
+      if (COL[ch]) r += '<rect x="' + (x + 0.09) + '" y="' + (y + 0.09) + '" width="0.82" height="0.82" fill="' + COL[ch] + '"/>';
+    }));
+    return svgEl('<svg class="' + (cls || '') + '" viewBox="-0.5 -1.5 ' + (W + 1) + ' ' + (H + 3) + '" shape-rendering="crispEdges" aria-hidden="true">' + r + '</svg>');
+  }
+
+  /* Tools without their own favicon get a glyph grown from their id: a 7x7
+     mirrored pixel pattern, the same every time for the same tool. */
+  function glyphCells(id) {
+    let h = 2166136261;
+    for (let i = 0; i < id.length; i++) { h ^= id.charCodeAt(i); h = Math.imul(h, 16777619); }
+    let s = h >>> 0 || 1;
+    const rnd = () => { s ^= s << 13; s >>>= 0; s ^= s >>> 17; s ^= s << 5; s >>>= 0; return s / 4294967296; };
+    const cells = [];
+    for (let y = 0; y < 7; y++) for (let x = 0; x < 4; x++) {
+      const edge = y === 0 || y === 6 || x === 0;
+      const p = edge ? 0.38 : 0.56;
+      if (rnd() < p) {
+        const tone = rnd() < 0.18 ? 'dim' : 'on';
+        cells.push([x, y, tone]);
+        if (x < 3) cells.push([6 - x, y, tone]);
+      }
+    }
+    // Never an empty or near-empty glyph.
+    if (cells.length < 9) cells.push([3, 3, 'on'], [2, 2, 'on'], [4, 2, 'on'], [2, 4, 'on'], [4, 4, 'on'], [3, 1, 'on'], [3, 5, 'on']);
+    return cells;
+  }
+  function glyphSvg(id) {
+    const r = glyphCells(id).map(([x, y, t]) =>
+      '<rect x="' + (x + 0.1) + '" y="' + (y + 0.1) + '" width="0.8" height="0.8" fill="' +
+      (t === 'dim' ? '#8e8a84' : 'currentColor') + '"/>').join('');
+    return svgEl('<svg viewBox="0 0 7 7" shape-rendering="crispEdges" aria-hidden="true">' + r + '</svg>');
+  }
+  function iconNode(t) {
+    if (t.icon) {
+      const img = el('img', { src: t.icon, alt: '', draggable: 'false' });
+      img.onerror = () => img.replaceWith(glyphSvg(t.id));
+      return img;
+    }
+    return glyphSvg(t.id);
+  }
+
+  const ICON = {
+    plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="square"><path d="M12 4v16M4 12h16"/></svg>',
+    open: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><path d="M5 19L19 5M9 5h10v10"/></svg>',
+    update: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></svg>',
+    rename: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><path d="M4 20h4L19 9l-4-4L4 16zM13 7l4 4"/></svg>',
+    pin: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><rect x="4" y="4" width="7" height="7"/><rect x="13" y="4" width="7" height="7"/><rect x="4" y="13" width="7" height="7"/><path d="M16.5 13v7M13 16.5h7"/></svg>',
+    copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><path d="M12 4v12M7 11l5 5 5-5M4 20h16"/></svg>',
+    bars: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><rect x="5" y="3" width="14" height="18"/><path d="M5 7h14M5 17h14" stroke-dasharray="2 2"/></svg>',
+    wipe: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><path d="M4 20h16M7 16l9-9 3 3-9 9H7z"/></svg>',
+    remove: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><path d="M5 7h14M9 7V4h6v3M7 7l1 13h8l1-13"/></svg>'
+  };
+  const ico = (k) => svgEl(ICON[k]);
+
+  /* ----- Formatting ----- */
+
+  function fmtBytes(n) {
+    if (n == null) return '–';
+    if (n < 1024) return n + ' B';
+    if (n < 1023488) return Math.max(1, Math.round(n / 1024)) + ' KB';
+    if (n < 1073741824) return (n / 1048576).toFixed(n < 10485760 ? 1 : 0) + ' MB';
+    return (n / 1073741824).toFixed(2) + ' GB';
+  }
+  function fmtAgo(ts) {
+    if (!ts) return 'never';
+    const s = (Date.now() - ts) / 1000;
+    if (s < 60) return 'just now';
+    if (s < 3600) return Math.floor(s / 60) + 'm ago';
+    if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+    if (s < 86400 * 30) return Math.floor(s / 86400) + 'd ago';
+    return fmtDate(ts);
+  }
+  function fmtDate(ts) {
+    if (!ts) return '–';
+    const d = new Date(ts);
+    return d.getDate() + ' ' + ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'][d.getMonth()] + ' ' + String(d.getFullYear()).slice(2);
+  }
+  const pad2 = (n) => String(n).padStart(2, '0');
+
+  /* ═════════════════════════════════════════════════════════════════
+     SHELF
+     ═════════════════════════════════════════════════════════════════ */
+
+  const $app = document.getElementById('app');
+  const SORTS = { recent: 'Recent', name: 'A–Z', added: 'Added' };
+  let fresh = new Set();
+
+  function sorted() {
+    const list = lib.tools.slice();
+    if (lib.sort === 'name') list.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+    else if (lib.sort === 'added') list.sort((a, b) => (b.added || 0) - (a.added || 0));
+    else list.sort((a, b) => (b.opened || 0) - (a.opened || 0) || (b.added || 0) - (a.added || 0));
+    return list;
+  }
+
+  function render() {
+    const list = sorted();
+    const sortBtn = el('button', { class: 'top-btn', 'aria-label': 'Sort', onclick: cycleSort },
+      el('span', { class: 'sort-label' }, SORTS[lib.sort] || 'Recent'));
+    const top = el('header', { class: 'top' },
+      el('div', { class: 'brand' }, jarSvg('brand-mark'), el('div', { class: 'brand-word' }, 'Vivarium')),
+      list.length ? sortBtn : null,
+      el('button', { class: 'top-btn add', 'aria-label': 'Add a tool', onclick: () => { haptic(8); pickAndImport(); } }, ico('plus'))
+    );
+
+    const parts = [top];
+    if (!list.length) {
+      parts.push(el('div', { class: 'empty' },
+        jarSvg('empty-jar'),
+        el('div', { class: 'empty-title' }, 'Nothing lives here yet'),
+        el('div', { class: 'empty-text' },
+          'Add a single-file ', el('b', {}, '.html'), ' tool. Each one gets its own enclosure: its own storage, sealed off from every other tool.',
+          el('br'), el('br'),
+          'You can also open any .html with Vivarium from your file manager, or share it here.'),
+        el('button', { class: 'btn primary', onclick: () => { haptic(8); pickAndImport(); } }, ico('plus'), 'Add tools')
+      ));
+    } else {
+      const files = list.reduce((n, t) => n + (t.size || 0), 0);
+      const known = list.filter((t) => t.usage != null);
+      const data = known.reduce((n, t) => n + (t.usage || 0), 0);
+      parts.push(el('div', { class: 'census' },
+        el('span', {}, el('b', {}, pad2(list.length)), list.length === 1 ? ' enclosure' : ' enclosures'),
+        el('span', {}, el('b', {}, fmtBytes(files)), ' in files'),
+        known.length ? el('span', {}, el('b', {}, fmtBytes(data)), ' kept') : null
+      ));
+      const grid = el('main', { class: 'grid' });
+      list.forEach((t, i) => grid.append(tileFor(t, i)));
+      grid.append(el('button', { class: 'tile adder', style: { '--i': list.length }, onclick: () => { haptic(8); pickAndImport(); } },
+        ico('plus'), el('span', {}, 'Add tool')));
+      parts.push(grid);
+    }
+    $app.replaceChildren(...parts);
+    fresh = new Set();
+  }
+
+  function tileFor(t, i) {
+    const inhabited = (t.usage || 0) > 2048;
+    const tile = el('button', {
+      class: 'tile' + (fresh.has(t.id) ? ' fresh' : ''),
+      style: { '--i': i, '--accent': t.accent || 'var(--fox)' },
+      'aria-label': t.name
+    },
+      el('span', { class: 'tile-icon' }, iconNode(t)),
+      inhabited ? el('span', { class: 'tile-pip', title: 'Has saved data' }) : null,
+      el('span', { class: 'tile-name' }, t.name),
+      el('span', { class: 'tile-meta' }, fmtBytes(t.size) + ' · ' + fmtAgo(t.opened))
+    );
+    pressable(tile, () => { haptic(8); openTool(t.id, tile); }, () => { haptic(20); manage(t.id); });
+    return tile;
+  }
+
+  /* Tap to open, hold to manage. Moving past a small slop cancels the hold,
+     so scrolling the shelf never opens a sheet. */
+  function pressable(node, onTap, onHold) {
+    let timer = null, held = false, sx = 0, sy = 0;
+    const cancel = () => { clearTimeout(timer); timer = null; node.classList.remove('pressing'); };
+    node.addEventListener('pointerdown', (e) => {
+      held = false; sx = e.clientX; sy = e.clientY;
+      cancel();
+      timer = setTimeout(() => { timer = null; held = true; node.classList.remove('pressing'); onHold(); }, 480);
+    });
+    node.addEventListener('pointermove', (e) => { if (timer && Math.hypot(e.clientX - sx, e.clientY - sy) > 10) cancel(); });
+    node.addEventListener('pointerup', cancel);
+    node.addEventListener('pointercancel', cancel);
+    node.addEventListener('pointerleave', cancel);
+    node.addEventListener('contextmenu', (e) => e.preventDefault());
+    node.addEventListener('click', () => { if (held) { held = false; return; } onTap(); });
+  }
+
+  function cycleSort() {
+    const keys = Object.keys(SORTS);
+    lib.sort = keys[(keys.indexOf(lib.sort) + 1) % keys.length];
+    haptic(6);
+    saveLibrary();
+    render();
+  }
+
+  /* ═════════════════════════════════════════════════════════════════
+     LITTLE LAYERS: toast, popup, sheet
+     ═════════════════════════════════════════════════════════════════ */
+
+  let toastEl = null, toastT = null;
+  function toast(msg, ms) {
+    if (toastEl) toastEl.remove();
+    clearTimeout(toastT);
+    const t = el('div', { class: 'toast', role: 'status' }, msg);
+    document.body.append(t);
+    toastEl = t;
+    requestAnimationFrame(() => t.classList.add('in'));
+    toastT = setTimeout(() => {
+      t.classList.remove('in');
+      setTimeout(() => { t.remove(); if (toastEl === t) toastEl = null; }, 260);
+    }, ms || 2200);
+  }
+
+  let popSt = null;
+  function popup(title, body, buttons, opts) {
+    opts = opts || {};
+    return new Promise((resolve) => {
+      if (popSt) popSt.close(null);
+      const scrim = el('div', { class: 'scrim' });
+      const actions = el('div', { class: 'pop-actions' });
+      const box = el('div', { class: 'pop', role: 'dialog', 'aria-label': title },
+        el('div', { class: 'pop-title' }, title),
+        body != null ? el('div', { class: 'pop-body' }, body) : null,
+        actions);
+      const host = el('div', { class: 'pop-host' }, scrim, box);
+      let done = false;
+      const close = (v) => {
+        if (done) return;
+        done = true;
+        if (popSt && popSt.host === host) popSt = null;
+        scrim.classList.remove('in');
+        box.classList.remove('in');
+        setTimeout(() => host.remove(), 220);
+        resolve(v);
+      };
+      for (const b of buttons) {
+        actions.append(el('button', {
+          class: 'btn ' + (b.kind || 'ghost'),
+          onclick: () => { haptic(8); close(typeof b.value === 'function' ? b.value() : b.value); }
+        }, b.label));
+      }
+      scrim.addEventListener('click', () => close(opts.dismissValue == null ? null : opts.dismissValue));
+      document.body.append(host);
+      popSt = { host, close };
+      requestAnimationFrame(() => { scrim.classList.add('in'); box.classList.add('in'); });
+      if (opts.focus) setTimeout(() => { try { opts.focus.focus(); opts.focus.select(); } catch (e) {} }, 60);
+    });
+  }
+
+  let sheetSt = null;
+  function openSheet(content, accent) {
+    closeSheet(true);
+    const scrim = el('div', { class: 'scrim' });
+    const sheet = el('div', { class: 'sheet', role: 'dialog', style: { '--accent': accent || 'var(--fox)' } }, content);
+    scrim.addEventListener('click', () => closeSheet());
+    document.body.append(scrim, sheet);
+    sheetSt = { scrim, sheet };
+    requestAnimationFrame(() => { scrim.classList.add('in'); sheet.classList.add('in'); });
+    return sheet;
+  }
+  function closeSheet(instant) {
+    const S = sheetSt;
+    if (!S) return;
+    sheetSt = null;
+    if (instant) { S.scrim.remove(); S.sheet.remove(); return; }
+    S.scrim.classList.remove('in');
+    S.sheet.classList.remove('in');
+    setTimeout(() => { S.scrim.remove(); S.sheet.remove(); }, 300);
+  }
+
+  /* ═════════════════════════════════════════════════════════════════
+     IMPORTING
+     ═════════════════════════════════════════════════════════════════ */
+
+  function pickFiles(multiple) {
+    return new Promise((resolve) => {
+      // Android hides unknown extensions behind octet-stream, so on the phone
+      // accept anything and check the content instead (same fix as the Den).
+      const inp = el('input', { type: 'file', accept: NATIVE ? '*/*' : '.html,.htm,text/html', style: { display: 'none' } });
+      if (multiple) inp.multiple = true;
+      let done = false;
+      const finish = (files) => { if (done) return; done = true; inp.remove(); resolve(files); };
+      inp.addEventListener('change', () => finish([...(inp.files || [])]));
+      inp.addEventListener('cancel', () => finish([]));
+      document.body.append(inp);
+      inp.click();
+    });
+  }
+
+  async function pickAndImport() {
+    const files = await pickFiles(true);
+    if (!files.length) return;
+    const items = [];
+    for (const f of files) {
+      if (f.size > MAX_BYTES) { toast(f.name + ' is too big for a tool'); continue; }
+      try { items.push({ name: f.name, text: await f.text() }); } catch (e) { toast('Could not read ' + f.name); }
+    }
+    await importMany(items);
+  }
+
+  let importing = Promise.resolve();
+  function importMany(items) {
+    importing = importing.then(async () => {
+      let added = 0, updated = 0;
+      for (const it of items) {
+        const r = await importOne(it.text, it.name);
+        if (r === 'added') added++;
+        else if (r === 'updated') updated++;
+      }
+      if (added || updated) {
+        await saveLibrary();
+        render();
+        if (added + updated > 1) toast([added ? added + ' added' : '', updated ? updated + ' updated' : ''].filter(Boolean).join(', '));
+      }
+    }).catch(() => toast('Import failed'));
+    return importing;
+  }
+
+  async function importOne(html, fileName) {
+    if (!looksLikeHtml(html)) { toast((fileName || 'That file') + ' doesn’t look like HTML'); return null; }
+    const title = titleOf(html, fileName);
+    const name = shelfName(title);
+    const hash = await sha(html);
+    let id = slug(name);
+    const existing = byId(id);
+
+    if (existing) {
+      if (existing.hash === hash) { toast(existing.name + ' is already up to date'); return null; }
+      const choice = await popup(existing.name + ' is already here',
+        'Replace it with this file? Its saved data stays and the new version picks it up. Or keep both, and this one starts empty.',
+        [
+          { label: 'Replace', value: 'replace', kind: 'primary' },
+          { label: 'Keep both', value: 'both' },
+          { label: 'Cancel', value: null }
+        ]);
+      if (!choice) return null;
+      if (choice === 'replace') {
+        await writeTool(existing, html, title, hash);
+        toast('Updated ' + existing.name);
+        fresh.add(existing.id);
+        return 'updated';
+      }
+      let n = 2;
+      while (byId(id + '-' + n)) n++;
+      id = id + '-' + n;
+    }
+
+    const t = {
+      id, name: existing ? name + ' ' + id.split('-').pop() : name, title,
+      size: 0, hash: '', icon: null, accent: null,
+      added: Date.now(), updated: Date.now(), opened: 0, opens: 0, usage: null, immersive: false
+    };
+    await writeTool(t, html, title, hash);
+    lib.tools.push(t);
+    fresh.add(t.id);
+    toast('Added ' + t.name);
+    probe(t.id);   // usually empty, but a reinstalled tool may find its old data
+    return 'added';
+  }
+
+  async function writeTool(t, html, title, hash) {
+    await store.write('tools/' + t.id + '/tool.html', html);
+    t.title = title;
+    t.hash = hash;
+    t.size = byteLen(html);
+    t.icon = iconOf(html);
+    t.accent = accentOf(html);
+    t.updated = Date.now();
+  }
+
+  async function updateFromFile(id) {
+    const t = byId(id);
+    if (!t) return;
+    const files = await pickFiles(false);
+    const f = files[0];
+    if (!f) return;
+    if (f.size > MAX_BYTES) { toast('That file is too big for a tool'); return; }
+    let html = '';
+    try { html = await f.text(); } catch (e) { toast('Could not read that file'); return; }
+    if (!looksLikeHtml(html)) { toast('That doesn’t look like HTML'); return; }
+    const hash = await sha(html);
+    if (hash === t.hash) { toast(t.name + ' is already up to date'); return; }
+    const title = titleOf(html, f.name);
+    if (shelfName(title) !== shelfName(t.title)) {
+      const ok = await popup('Different tool?',
+        'This file calls itself ' + shelfName(title) + '. Put it in ' + t.name + '’s enclosure anyway? It will see ' + t.name + '’s saved data.',
+        [{ label: 'Use it anyway', value: true, kind: 'primary' }, { label: 'Cancel', value: false }]);
+      if (!ok) return;
+    }
+    await writeTool(t, html, title, hash);
+    await saveLibrary();
+    fresh.add(t.id);
+    render();
+    toast('Updated ' + t.name);
+    haptic(15);
+  }
+
+  /* ----- Inbox: Open with / Share -----
+     The native side copies incoming files into inbox/ while it still has
+     permission to read them. Sweep it whenever we might have new mail. */
+  let sweeping = null;
+  function sweepInbox() {
+    if (!NATIVE) return Promise.resolve();
+    if (sweeping) return sweeping;
+    sweeping = (async () => {
+      const names = (await store.list('inbox')).sort();
+      if (!names.length) return;
+      const items = [];
+      for (const n of names) {
+        try { items.push({ name: n.replace(/^\d+-\d+-/, ''), text: await store.read('inbox/' + n) }); } catch (e) {}
+        await store.remove('inbox/' + n);
+      }
+      if (items.length) await importMany(items);
+    })().catch(() => {}).finally(() => { sweeping = null; });
+    return sweeping;
+  }
+
+  /* ═════════════════════════════════════════════════════════════════
+     KEEPER: read or wipe a tool's storage without opening it
+     ═════════════════════════════════════════════════════════════════ */
+
+  const keeperWaits = new Map();   // window -> { resolve, frame, timer }
+  function keeper(id, op) {
+    if (!NATIVE) return Promise.resolve(null);
+    return new Promise((resolve) => {
+      const fr = el('iframe', { class: 'keeper', 'aria-hidden': 'true', tabindex: '-1',
+        src: toolOrigin(id) + '/__vivarium/keeper.html?do=' + op + '&id=' + encodeURIComponent(id) });
+      const finish = (v) => {
+        const w = fr.contentWindow;
+        const k = keeperWaits.get(w);
+        if (k) { clearTimeout(k.timer); keeperWaits.delete(w); }
+        fr.remove();
+        resolve(v);
+      };
+      document.body.append(fr);
+      keeperWaits.set(fr.contentWindow, { resolve: finish, timer: setTimeout(() => finish(null), 6000) });
+    });
+  }
+
+  async function probe(id) {
+    const r = await keeper(id, 'probe');
+    const t = byId(id);
+    if (!r || !t) return null;
+    if (t.usage !== r.bytes) {
+      t.usage = r.bytes;
+      saveLibrary();
+      if (!toolSt) render();
+    }
+    return r;
+  }
+
+  /* ═════════════════════════════════════════════════════════════════
+     MANAGE SHEET
+     ═════════════════════════════════════════════════════════════════ */
+
+  function manage(id) {
+    const t = byId(id);
+    if (!t) return;
+    const dataV = el('div', { class: 'stat-v' }, t.usage == null ? '…' : fmtBytes(t.usage));
+    const row = (k, title, sub, fn, cls) => el('button', {
+      class: 'row' + (cls ? ' ' + cls : ''),
+      onclick: () => { haptic(8); fn(); }
+    }, el('span', { class: 'row-ico' }, ico(k)),
+      el('span', { class: 'row-main' }, el('div', { class: 'row-title' }, title), sub ? el('div', { class: 'row-sub' }, sub) : null));
+
+    const barsRow = row('bars', 'Hide system bars', 'Swipe from an edge to peek', () => {
+      t.immersive = !t.immersive;
+      barsRow.classList.toggle('on', t.immersive);
+      saveLibrary();
+    });
+    barsRow.append(el('span', { class: 'switch', 'aria-hidden': 'true' }));
+    barsRow.classList.toggle('on', !!t.immersive);
+    if (!NATIVE) barsRow.disabled = true;
+
+    const pinRow = row('pin', 'Pin to home screen', 'Opens straight into ' + t.name, () => pinShortcut(t.id));
+    if (!NATIVE) pinRow.disabled = true;
+    const wipeRow = row('wipe', 'Wipe its data', 'The tool stays, its storage empties', () => wipeData(t.id), 'danger');
+    if (!NATIVE) wipeRow.disabled = true;
+
+    openSheet([
+      el('div', { class: 'sheet-head' },
+        el('div', { class: 'sheet-icon' }, iconNode(t)),
+        el('div', { style: { minWidth: '0' } },
+          el('div', { class: 'sheet-title' }, t.name),
+          el('div', { class: 'sheet-host' }, t.id + HOST_SUFFIX))),
+      el('div', { class: 'stats' },
+        el('div', { class: 'stat' }, el('div', { class: 'stat-k' }, 'File'), el('div', { class: 'stat-v' }, fmtBytes(t.size))),
+        el('div', { class: 'stat' }, el('div', { class: 'stat-k' }, 'Data'), dataV),
+        el('div', { class: 'stat' }, el('div', { class: 'stat-k' }, 'Opened'), el('div', { class: 'stat-v' }, (t.opens || 0) + '×')),
+        el('div', { class: 'stat' }, el('div', { class: 'stat-k' }, 'Added'), el('div', { class: 'stat-v' }, fmtDate(t.added))),
+        el('div', { class: 'stat' }, el('div', { class: 'stat-k' }, 'Updated'), el('div', { class: 'stat-v' }, fmtDate(t.updated))),
+        el('div', { class: 'stat' }, el('div', { class: 'stat-k' }, 'Last'), el('div', { class: 'stat-v' }, fmtAgo(t.opened)))),
+      el('div', {},
+        row('open', 'Open', null, () => { closeSheet(); openTool(t.id); }),
+        row('update', 'Update from file', 'Keeps its saved data', () => { closeSheet(); updateFromFile(t.id); }),
+        row('rename', 'Rename', 'Only the label, the enclosure stays', () => rename(t.id)),
+        barsRow,
+        pinRow,
+        row('copy', 'Save a copy', 'The .html, to Documents/Vivarium', () => exportFile(t.id)),
+        wipeRow,
+        row('remove', 'Remove', null, () => removeTool(t.id), 'danger'))
+    ], t.accent);
+
+    // Live reading of what it holds.
+    if (NATIVE) probe(t.id).then((r) => {
+      if (r) { dataV.textContent = fmtBytes(r.bytes); dataV.classList.add('live'); }
+      else if (t.usage == null) dataV.textContent = '–';
+    });
+  }
+
+  async function rename(id) {
+    const t = byId(id);
+    if (!t) return;
+    const input = el('input', { class: 'pop-input', value: t.name, maxlength: '48', spellcheck: 'false', autocomplete: 'off' });
+    let commit = null;
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && commit) commit(); });
+    const p = popup('Rename', input, [
+      { label: 'Save', value: () => input.value.trim(), kind: 'primary' },
+      { label: 'Cancel', value: null }
+    ], { focus: input });
+    commit = () => { if (popSt) popSt.close(input.value.trim()); };
+    const v = await p;
+    if (!v || v === t.name) return;
+    t.name = v.slice(0, 48);
+    await saveLibrary();
+    closeSheet(true);
+    render();
+    manage(id);
+  }
+
+  async function wipeData(id) {
+    const t = byId(id);
+    if (!t) return;
+    const ok = await popup('Wipe ' + t.name + '?',
+      'Everything ' + t.name + ' has saved goes: its storage, databases and caches. The tool itself stays. Export from inside it first if you want a copy.',
+      [{ label: 'Wipe', value: true, kind: 'danger' }, { label: 'Cancel', value: false }]);
+    if (!ok) return;
+    const r = await keeper(id, 'wipe');
+    if (!r) { toast('Could not reach ' + t.name + '’s storage'); return; }
+    t.usage = r.bytes;
+    await saveLibrary();
+    closeSheet();
+    render();
+    toast(r.ok ? 'Wiped ' + t.name : 'Wiped what could be wiped');
+    haptic(20);
+  }
+
+  async function removeTool(id) {
+    const t = byId(id);
+    if (!t) return;
+    const choice = await popup('Remove ' + t.name + '?',
+      'Keep its data and it comes back with everything if you add the same tool again. Or wipe the data too.',
+      [
+        { label: 'Remove, keep data', value: 'keep', kind: 'danger' },
+        { label: 'Remove and wipe', value: 'wipe', kind: 'danger' },
+        { label: 'Cancel', value: null }
+      ]);
+    if (!choice) return;
+    if (choice === 'wipe') await keeper(id, 'wipe');
+    await store.removeDir('tools/' + id);
+    lib.tools = lib.tools.filter((x) => x.id !== id);
+    await saveLibrary();
+    const V = plug('Vivarium');
+    if (NATIVE && V) V.disableShortcut({ id }).catch(() => {});
+    closeSheet();
+    render();
+    toast('Removed ' + t.name);
+    haptic(20);
+  }
+
+  async function exportFile(id) {
+    const t = byId(id);
+    if (!t) return;
+    let html;
+    try { html = await store.read('tools/' + id + '/tool.html'); } catch (e) { toast('The file is missing'); return; }
+    const name = slug(t.name) + '.html';
+    await saveOut(name, new Blob([html], { type: 'text/html' }));
+  }
+
+  // Shortcut icon: the tile's icon on black, inside the adaptive safe zone.
+  async function shortcutIcon(t) {
+    const S = 432;
+    const c = document.createElement('canvas');
+    c.width = c.height = S;
+    const g = c.getContext('2d');
+    g.fillStyle = '#000';
+    g.fillRect(0, 0, S, S);
+    const box = S * 0.42, o = (S - box) / 2;
+    let src = t.icon;
+    if (!src) {
+      const svg = glyphSvg(t.id);
+      svg.setAttribute('width', '70'); svg.setAttribute('height', '70');
+      svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+      svg.style.color = t.accent || '#f97316';
+      svg.setAttribute('color', t.accent || '#f97316');
+      src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg.outerHTML.replace(/currentColor/g, t.accent || '#f97316'));
+    }
+    await new Promise((res) => {
+      const img = new Image();
+      img.onload = () => { g.imageSmoothingEnabled = !!t.icon; g.drawImage(img, o, o, box, box); res(); };
+      img.onerror = () => res();
+      img.src = src;
+    });
+    return c.toDataURL('image/png').split(',')[1];
+  }
+
+  async function pinShortcut(id) {
+    const t = byId(id);
+    const V = plug('Vivarium');
+    if (!t || !V) return;
+    try {
+      const r = await V.pinShortcut({ id, name: t.name, icon: await shortcutIcon(t) });
+      if (r && r.asked === false) toast('Your launcher said no');
+    } catch (e) {
+      toast(String(e && e.message || '').includes('unsupported') ? 'Your launcher can’t pin shortcuts' : 'Could not pin it');
+    }
+  }
+
+  /* ----- Writing files out (tool exports, Save a copy) ----- */
+
+  async function saveOut(name, blob) {
+    name = String(name || 'export').replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '_').slice(0, 120) || 'export';
+    const FS = plug('Filesystem');
+    if (!NATIVE || !FS) {
+      const url = URL.createObjectURL(blob);
+      const a = el('a', { href: url, download: name });
+      document.body.append(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      return;
+    }
+    const path = 'Vivarium/' + name;
+    try {
+      const isText = /^text\/|json|xml|javascript|csv/.test(blob.type) || /\.(json|txt|md|csv|svg|html?|cyoa)$/i.test(name);
+      if (isText) {
+        await FS.writeFile({ path, data: await blob.text(), directory: 'DOCUMENTS', encoding: 'utf8', recursive: true });
+      } else {
+        const b64 = await new Promise((res, rej) => {
+          const r = new FileReader();
+          r.onload = () => res(String(r.result).split(',')[1] || '');
+          r.onerror = () => rej(r.error);
+          r.readAsDataURL(blob);
+        });
+        await FS.writeFile({ path, data: b64, directory: 'DOCUMENTS', recursive: true });
+      }
+      toast('Saved to Documents/Vivarium: ' + name, 2800);
+      haptic(15);
+    } catch (e) {
+      toast('Could not save ' + name);
+    }
+  }
+
+  /* ═════════════════════════════════════════════════════════════════
+     THE TOOL LAYER
+     ═════════════════════════════════════════════════════════════════ */
+
+  let toolSt = null;   // { t, layer, fr, card, label, ox, oy, closing, ready, blobUrl, wake }
+  let opening = false;
+  let lastX = innerWidth / 2, lastY = innerHeight / 2;
+  document.addEventListener('pointerdown', (e) => { lastX = e.clientX; lastY = e.clientY; }, true);
+
+  const circle = (x, y, r) => 'circle(' + r + 'px at ' + x + 'px ' + y + 'px)';
+  const farthest = (x, y) => Math.hypot(Math.max(x, innerWidth - x), Math.max(y, innerHeight - y)) + 24;
+
+  async function frameSrc(t) {
+    if (NATIVE) return { src: toolOrigin(t.id) + '/' };
+    // Preview in a desktop browser: no separate origins here, so the tool
+    // runs from a blob on this page's origin with the helpers spliced in.
+    let html = '';
+    try { html = await store.read('tools/' + t.id + '/tool.html'); } catch (e) { return null; }
+    const base = new URL('vivarium/', location.href).href;
+    const inj = '<link rel="stylesheet" href="' + base + 'fonts.css"><script src="' + base + 'shim.js"><\/script>';
+    const m = html.match(/<head[^>]*>/i) || html.match(/<html[^>]*>/i);
+    html = m ? html.slice(0, m.index + m[0].length) + inj + html.slice(m.index + m[0].length) : inj + html;
+    const url = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }));
+    return { src: url, blobUrl: url };
+  }
+
+  async function openTool(id, fromNode) {
+    const t = byId(id);
+    if (!t || toolSt || opening) return;
+    opening = true;
+    closeSheet(true);
+    let ox = lastX, oy = lastY;
+    if (fromNode && fromNode.getBoundingClientRect) {
+      const r = fromNode.getBoundingClientRect();
+      if (!(lastX >= r.left && lastX <= r.right && lastY >= r.top && lastY <= r.bottom)) { ox = r.left + r.width / 2; oy = r.top + r.height / 2; }
+    }
+    const src = await frameSrc(t);
+    opening = false;
+    if (!src) { toast(t.name + '’s file is missing'); return; }
+    if (toolSt) return;
+
+    const label = el('div', { class: 'tool-card-status' }, 'opening');
+    const card = el('div', { class: 'tool-card' },
+      el('div', { class: 'tool-card-icon' }, iconNode(t)),
+      el('div', { class: 'tool-card-name' }, t.name),
+      label,
+      el('div', { class: 'tool-card-bar' }, el('div', {})));
+    const fr = document.createElement('iframe');
+    fr.className = 'tool-frame';
+    fr.title = t.name;
+    fr.setAttribute('allow', 'clipboard-read; clipboard-write; fullscreen; screen-wake-lock; autoplay; web-share; ' +
+      'accelerometer; gyroscope; magnetometer; camera; microphone; geolocation');
+    fr.setAttribute('allowfullscreen', '');
+    // src before insertion: the first load replaces the frame's blank entry
+    // instead of adding one to the back stack.
+    fr.src = src.src;
+    const layer = el('div', { class: 'tool-layer', role: 'dialog', 'aria-label': t.name, style: { '--accent': t.accent || 'var(--fox)' } },
+      el('div', { class: 'tool-stage' }, card, fr));
+    toolSt = { t, layer, fr, card, label, ox, oy, closing: false, ready: false, blobUrl: src.blobUrl || null, wake: false };
+    const S = toolSt;
+
+    fr.addEventListener('load', () => {
+      if (toolSt !== S) return;
+      S.ready = true;
+      requestAnimationFrame(() => requestAnimationFrame(() => layer.classList.add('ready')));
+    }, { once: true });
+
+    document.body.append(layer);
+    history.pushState({ vivarium: 'tool' }, '');
+
+    if (reduced()) layer.classList.add('in');
+    else {
+      layer.animate(
+        [{ clipPath: circle(ox, oy, 6) }, { clipPath: circle(ox, oy, farthest(ox, oy)) }],
+        { duration: 560, easing: 'cubic-bezier(0.6, 0, 0.2, 1)', fill: 'forwards' }
+      ).finished.then((a) => { a.cancel(); }).catch(() => {});
+    }
+    setTimeout(() => { if (toolSt === S) $app.style.visibility = 'hidden'; }, reduced() ? 50 : 600);
+
+    const V = plug('Vivarium');
+    if (NATIVE && V && t.immersive) V.setImmersive({ on: true }).catch(() => {});
+
+    t.opened = Date.now();
+    t.opens = (t.opens || 0) + 1;
+    saveLibrary();
+  }
+
+  // Ask the tool something and wait for its answer (or give up quietly).
+  let seq = 0;
+  const asks = new Map();
+  function ask(S, t, timeout) {
+    return new Promise((resolve) => {
+      const id = ++seq;
+      const timer = setTimeout(() => { asks.delete(id); resolve(null); }, timeout);
+      asks.set(id, (m) => { clearTimeout(timer); asks.delete(id); resolve(m); });
+      try { S.fr.contentWindow.postMessage({ vv: 1, t, seq: id }, NATIVE ? toolOrigin(S.t.id) : '*'); } catch (e) { resolve(null); }
+    });
+  }
+
+  let closeWaiters = [];
+  async function closeTool() {
+    const S = toolSt;
+    if (!S || S.closing) return;
+    S.closing = true;
+
+    // A tool that already says saving failed gets a chance to keep you.
+    const st = S.ready ? await ask(S, 'status', 500) : null;
+    if (st && st.failing) {
+      const go = await popup(S.t.name + ' can’t save',
+        S.t.name + ' says its last changes did not save. Leaving now could lose them. Export from its menu first.',
+        [{ label: 'Leave anyway', value: true, kind: 'danger' }, { label: 'Stay', value: false }]);
+      if (!go) {
+        S.closing = false;
+        history.pushState({ vivarium: 'tool' }, '');   // re-arm back
+        return;
+      }
+    }
+
+    // Save first. Only show "saving" if it actually takes a moment.
+    let flushed = null;
+    if (S.ready) {
+      const showT = setTimeout(() => { S.label.textContent = 'saving'; S.layer.classList.add('saving'); }, 160);
+      flushed = await ask(S, 'flush', 3200);
+      clearTimeout(showT);
+    }
+    if (flushed && typeof flushed.bytes === 'number') S.t.usage = flushed.bytes;
+
+    const V = plug('Vivarium');
+    if (NATIVE && V) {
+      if (S.t.immersive) V.setImmersive({ on: false }).catch(() => {});
+      if (S.wake) V.setKeepAwake({ on: false }).catch(() => {});
+    } else if (S.wakeSentinel) { try { S.wakeSentinel.release(); } catch (e) {} }
+
+    $app.style.visibility = '';
+    saveLibrary();
+    render();
+    const finish = () => {
+      S.layer.remove();
+      if (S.blobUrl) { try { URL.revokeObjectURL(S.blobUrl); } catch (e) {} }
+      if (toolSt === S) toolSt = null;
+      const w = closeWaiters; closeWaiters = [];
+      w.forEach((f) => f());
+    };
+    haptic(8);
+    if (reduced()) { finish(); return; }
+    S.layer.getAnimations().forEach((a) => a.cancel());
+    S.layer.animate(
+      [{ clipPath: circle(S.ox, S.oy, farthest(S.ox, S.oy)) }, { clipPath: circle(S.ox, S.oy, 6) }],
+      { duration: 420, easing: 'cubic-bezier(0.4, 0, 0.8, 0.2)', fill: 'forwards' }
+    ).finished.then(finish, finish);
+  }
+
+  // Leave through history, so the tool's own back stack unwinds properly.
+  function leaveTool() {
+    if (!toolSt) return Promise.resolve();
+    const p = new Promise((r) => closeWaiters.push(r));
+    if (!toolSt.closing) history.back();
+    return p;
+  }
+
+  /* Back. The tool's own history entries live in the joint session history,
+     so history.back() first walks back inside the tool (Almagest's drill
+     downs, say). This page only hears popstate when its own "tool" entry is
+     popped, which means: leave the tool. */
+  window.addEventListener('popstate', () => { if (toolSt) closeTool(); });
+
+  /* ----- Messages from tools and keepers ----- */
+
+  window.addEventListener('message', (e) => {
+    const m = e.data;
+    if (!m || m.vv !== 1 || typeof m.t !== 'string') return;
+
+    if (m.t === 'keeper') {
+      const k = keeperWaits.get(e.source);
+      if (k && (!NATIVE || e.origin === toolOrigin(m.id))) k.resolve(m);
+      return;
+    }
+
+    const S = toolSt;
+    if (!S || e.source !== S.fr.contentWindow) return;
+    if (NATIVE && e.origin !== toolOrigin(S.t.id)) return;
+
+    switch (m.t) {
+      case 'hello':
+        try { e.source.postMessage({ vv: 1, t: 'init', native: NATIVE }, NATIVE ? e.origin : '*'); } catch (err) {}
+        break;
+      case 'status':
+      case 'flushed': {
+        const f = asks.get(m.seq);
+        if (f) f(m);
+        break;
+      }
+      case 'haptic':
+        haptic(m.ms);
+        break;
+      case 'usage':
+        if (typeof m.bytes === 'number') S.t.usage = m.bytes;
+        break;
+      case 'file':
+        if (m.blob instanceof Blob) saveOut(m.name, m.blob);
+        break;
+      case 'file-failed':
+        toast('Could not export ' + (m.name || 'that'));
+        break;
+      case 'open': {
+        const V = plug('Vivarium');
+        if (NATIVE && V) V.openExternal({ url: String(m.url) }).catch(() => toast('Nothing here can open that link'));
+        else window.open(String(m.url), '_blank', 'noopener');
+        break;
+      }
+      case 'wake': {
+        S.wake = !!m.on;
+        const V = plug('Vivarium');
+        if (NATIVE && V) V.setKeepAwake({ on: S.wake }).catch(() => {});
+        else if (navigator.wakeLock) {
+          if (S.wake) navigator.wakeLock.request('screen').then((w) => { S.wakeSentinel = w; }).catch(() => {});
+          else if (S.wakeSentinel) { S.wakeSentinel.release().catch(() => {}); S.wakeSentinel = null; }
+        }
+        break;
+      }
+    }
+  });
+
+  /* ═════════════════════════════════════════════════════════════════
+     ANDROID: back button, shortcuts, incoming files
+     ═════════════════════════════════════════════════════════════════ */
+
+  function toolIdFromUrl(url) {
+    const m = /^vivarium:\/\/tool\/([a-z0-9-]+)/.exec(url || '');
+    return m ? m[1] : null;
+  }
+
+  async function openFromShortcut(id) {
+    if (!byId(id)) { toast('That tool isn’t here anymore'); return; }
+    if (toolSt && toolSt.t.id === id) return;
+    if (popSt) popSt.close(null);
+    closeSheet(true);
+    if (toolSt) await leaveTool();
+    lastX = innerWidth / 2; lastY = innerHeight / 2;
+    openTool(id);
+  }
+
+  function wireNative() {
+    const App = plug('App');
+    if (!NATIVE || !App) return;
+
+    App.addListener('backButton', () => {
+      if (popSt) { popSt.close(null); return; }
+      if (sheetSt) { closeSheet(); return; }
+      if (toolSt) { if (!toolSt.closing) history.back(); return; }
+      App.minimizeApp();
+    });
+
+    App.addListener('appUrlOpen', (ev) => {
+      const id = toolIdFromUrl(ev && ev.url);
+      if (id) openFromShortcut(id);
+      else sweepInbox();
+    });
+
+    App.addListener('appStateChange', (st) => {
+      if (st && st.isActive) sweepInbox();
+      else if (toolSt) ask(toolSt, 'flush', 1500);   // backgrounded: save, just in case
+    });
+
+    App.getLaunchUrl().then((r) => {
+      const id = toolIdFromUrl(r && r.url);
+      if (id) openFromShortcut(id);
+    }).catch(() => {});
+  }
+
+  /* ═════════════════════════════════════════════════════════════════
+     BOOT
+     ═════════════════════════════════════════════════════════════════ */
+
+  (async function boot() {
+    await loadLibrary();
+    render();
+    wireNative();
+    await sweepInbox();
+    // Refresh what each tool holds, quietly, one at a time.
+    if (NATIVE) for (const t of lib.tools.slice()) { if (toolSt) break; await probe(t.id); }
+  })();
+})();
+</script>
+</body>
+</html>
