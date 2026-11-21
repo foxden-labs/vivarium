@@ -1,0 +1,47 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Vivarium keeper</title>
+<!-- Loaded invisibly on a tool's own origin by the launcher.
+       ?do=probe  report how much the tool has stored
+       ?do=wipe   delete everything it has stored, then report
+     Only the launcher's origin hears the answer. -->
+<script>
+(async function () {
+  'use strict';
+  const q = new URLSearchParams(location.search);
+  const op = q.get('do') === 'wipe' ? 'wipe' : 'probe';
+  const origin = (location.ancestorOrigins && location.ancestorOrigins.length)
+    ? location.ancestorOrigins[0] : 'https://localhost';
+  let ok = true;
+
+  if (op === 'wipe') {
+    try { localStorage.clear(); } catch (e) {}
+    try { sessionStorage.clear(); } catch (e) {}
+    try {
+      const dbs = indexedDB.databases ? await indexedDB.databases() : [];
+      await Promise.all(dbs.map((d) => new Promise((done) => {
+        const r = indexedDB.deleteDatabase(d.name);
+        r.onsuccess = r.onerror = () => done();
+        r.onblocked = () => { ok = false; done(); };
+      })));
+    } catch (e) { ok = false; }
+    try { if (self.caches) for (const k of await caches.keys()) await caches.delete(k); } catch (e) {}
+    try {
+      if (navigator.serviceWorker) for (const r of await navigator.serviceWorker.getRegistrations()) await r.unregister();
+    } catch (e) {}
+  }
+
+  let bytes = 0;
+  try { const e = await navigator.storage.estimate(); bytes = e.usage || 0; } catch (e) {}
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      bytes += (k.length + (localStorage.getItem(k) || '').length) * 2;
+    }
+  } catch (e) {}
+  let dbs = 0;
+  try { dbs = indexedDB.databases ? (await indexedDB.databases()).length : 0; } catch (e) {}
+
+  parent.postMessage({ vv: 1, t: 'keeper', op, ok, bytes, dbs, id: q.get('id') }, origin);
+})();
+</script>

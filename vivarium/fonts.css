@@ -1,0 +1,13 @@
+/* JetBrains Mono, carried over from the Den's Workshop so a tool that asks
+   for it gets it fully offline. Copyright 2020 The JetBrains Mono Project
+   Authors (https://github.com/JetBrains/JetBrainsMono), SIL Open Font License
+   1.1 (https://openfontlicense.org); the license also travels inside the
+   font's own name table. Latin subset, 100 to 800 weight axis. A tool's own
+   Google Fonts link still loads when online and takes over for its ranges. */
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url(jbm.woff2) format("woff2");
+  font-weight: 100 800;
+  font-style: normal;
+  font-display: swap;
+}
