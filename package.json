@@ -2,6 +2,7 @@
   "name": "vivarium-apk",
   "version": "1.0.0",
   "private": true,
+  "license": "AGPL-3.0-or-later",
   "dependencies": {
     "@capacitor/android": "^8.0.0",
     "@capacitor/app": "^8.0.0",

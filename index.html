@@ -246,6 +246,17 @@ svg { display: block; }
 .row.on .switch { border-color: var(--fox); }
 .row.on .switch::after { transform: translateX(16px); background: var(--fox); }
 
+/* ---- About ---- */
+.brand { cursor: pointer; }
+.brand:active .brand-mark { transform: scale(0.9); }
+.brand-mark { transition: transform 140ms var(--ease); }
+.about { padding: 26px var(--pad) 8px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 6px; }
+.about-mark { width: 64px; height: 64px; margin-bottom: 8px; }
+.about-name { font-weight: 700; font-size: 15px; letter-spacing: 4.5px; text-transform: uppercase; }
+.about-ver { font-family: var(--mono); font-size: 10.5px; color: var(--ink-dim); }
+.about-text { margin-top: 14px; font-family: var(--mono); font-size: 11.5px; line-height: 1.75; color: var(--ink-soft); }
+.about-text .dim { color: var(--ink-dim); }
+
 /* ---- Popup ---- */
 .pop-host { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; padding: 24px; }
 .pop-host .scrim { z-index: 0; position: absolute; }
@@ -573,6 +584,7 @@ svg { display: block; }
     copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><path d="M12 4v12M7 11l5 5 5-5M4 20h16"/></svg>',
     bars: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><rect x="5" y="3" width="14" height="18"/><path d="M5 7h14M5 17h14" stroke-dasharray="2 2"/></svg>',
     wipe: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><path d="M4 20h16M7 16l9-9 3 3-9 9H7z"/></svg>',
+    doc: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><path d="M6 3h9l4 4v14H6zM14 3v5h5M9 12h7M9 16h7"/></svg>',
     remove: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><path d="M5 7h14M9 7V4h6v3M7 7l1 13h8l1-13"/></svg>'
   };
   const ico = (k) => svgEl(ICON[k]);
@@ -623,7 +635,7 @@ svg { display: block; }
     const sortBtn = el('button', { class: 'top-btn', 'aria-label': 'Sort', onclick: cycleSort },
       el('span', { class: 'sort-label' }, SORTS[lib.sort] || 'Recent'));
     const top = el('header', { class: 'top' },
-      el('div', { class: 'brand' }, jarSvg('brand-mark'), el('div', { class: 'brand-word' }, 'Vivarium')),
+      brandNode(),
       list.length ? sortBtn : null,
       el('button', { class: 'top-btn add', 'aria-label': 'Add a tool', onclick: () => { haptic(8); pickAndImport(); } }, ico('plus'))
     );
@@ -690,6 +702,49 @@ svg { display: block; }
     node.addEventListener('pointerleave', cancel);
     node.addEventListener('contextmenu', (e) => e.preventDefault());
     node.addEventListener('click', () => { if (held) { held = false; return; } onTap(); });
+  }
+
+  /* ----- About -----
+     The copyright and licence line the AGPL asks interactive programs to
+     show. Forks have to keep showing it. */
+  const SOURCE_URL = 'https://github.com/foxden-labs/vivarium';
+  let appVersion = '';
+  function brandNode() {
+    const b = el('button', { class: 'brand', 'aria-label': 'About Vivarium' },
+      jarSvg('brand-mark'), el('div', { class: 'brand-word' }, 'Vivarium'));
+    pressable(b, () => { haptic(8); about(); }, () => { haptic(20); about(); });
+    return b;
+  }
+  function openLink(url) {
+    const V = plug('Vivarium');
+    if (NATIVE && V) V.openExternal({ url }).catch(() => toast('Nothing here can open that link'));
+    else window.open(url, '_blank', 'noopener');
+  }
+  function about() {
+    const ver = el('div', { class: 'about-ver' }, appVersion ? 'v' + appVersion : '');
+    const row = (k, title, sub, fn) => el('button', { class: 'row', onclick: () => { haptic(8); fn(); } },
+      el('span', { class: 'row-ico' }, ico(k)),
+      el('span', { class: 'row-main' }, el('div', { class: 'row-title' }, title), el('div', { class: 'row-sub' }, sub)));
+    openSheet([
+      el('div', { class: 'about' },
+        jarSvg('about-mark'),
+        el('div', { class: 'about-name' }, 'Vivarium'),
+        ver,
+        el('div', { class: 'about-text' },
+          '\u00a9 2026 Fox \u00b7 foxden-labs', el('br'),
+          'Free software under AGPL-3.0-or-later.', el('br'),
+          el('span', { class: 'dim' }, 'No warranty. No ads. No tracking.'), el('br'), el('br'),
+          el('span', { class: 'dim' }, 'Includes JetBrains Mono (OFL 1.1)'), el('br'),
+          el('span', { class: 'dim' }, 'and Capacitor (MIT).'))),
+      el('div', { style: { marginTop: '14px', borderTop: '1px solid var(--line-soft)' } },
+        row('open', 'Source', 'github.com/foxden-labs/vivarium', () => openLink(SOURCE_URL)),
+        row('doc', 'Licence', 'AGPL-3.0-or-later, full text', () => openLink(SOURCE_URL + '/blob/main/LICENSE')))
+    ]);
+    const App = plug('App');
+    if (NATIVE && App && !appVersion) App.getInfo().then((i) => {
+      appVersion = (i && i.version) || '';
+      if (appVersion) ver.textContent = 'v' + appVersion;
+    }).catch(() => {});
   }
 
   function cycleSort() {
