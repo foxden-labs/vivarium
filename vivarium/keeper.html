@@ -4,14 +4,20 @@
 <!-- Loaded invisibly on a tool's own origin by the launcher.
        ?do=probe  report how much the tool has stored
        ?do=wipe   delete everything it has stored, then report
-     Only the launcher's origin hears the answer. -->
+     Does nothing unless the shelf itself (https://localhost) loaded it
+     directly. A tool that loads another tool's keeper gets silence. -->
 <script>
 (async function () {
   'use strict';
+  const SHELF = 'https://localhost';
+  let direct = false;
+  try { direct = window.parent !== window && window.parent === window.top; } catch (e) {}
+  const anc = location.ancestorOrigins;
+  if (!direct || !anc || anc.length !== 1 || anc[0] !== SHELF) return;
+
   const q = new URLSearchParams(location.search);
   const op = q.get('do') === 'wipe' ? 'wipe' : 'probe';
-  const origin = (location.ancestorOrigins && location.ancestorOrigins.length)
-    ? location.ancestorOrigins[0] : 'https://localhost';
+  const origin = SHELF;
   let ok = true;
 
   if (op === 'wipe') {
