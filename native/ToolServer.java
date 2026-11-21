@@ -123,6 +123,10 @@ final class ToolServer {
         h.put("Cache-Control", "no-store");
         h.put("X-Content-Type-Options", "nosniff");
         h.put("Access-Control-Allow-Origin", "*");
+        // Only the shelf (or the tool itself) may put a tool page in a frame.
+        // Stops one tool from loading another tool, or another tool's keeper,
+        // inside itself.
+        h.put("Content-Security-Policy", "frame-ancestors 'self' https://localhost");
         return h;
     }
 
