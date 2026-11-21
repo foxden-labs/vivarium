@@ -168,7 +168,7 @@ svg { display: block; }
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
   padding: 30px var(--pad) 80px; text-align: center;
 }
-.empty-jar { width: 132px; height: 132px; opacity: 0.9; }
+.empty-jar { width: 112px; height: 112px; opacity: 0.9; }
 .empty-title { font-weight: 700; font-size: 13px; letter-spacing: 3px; text-transform: uppercase; }
 .empty-text { font-family: var(--mono); font-size: 12px; line-height: 1.7; color: var(--ink-dim); max-width: 320px; }
 .empty-text b { color: var(--ink-soft); font-weight: 500; }
@@ -505,38 +505,27 @@ svg { display: block; }
     return t.content.firstChild;
   }
 
-  /* The bell jar, same pixel grammar as the Den's crest. Also the app icon. */
+  /* Rising chevrons, same pixel grammar as the Den's crest. Also the app icon. */
   const JAR = [
-    '..........CCC..........',
-    '.........OCCCO.........',
-    '.......OO.....OO.......',
-    '.....OO.........OO.....',
-    '....O.............O....',
-    '...O...G...........O...',
-    '...O..G............O...',
-    '..O..G..............O..',
-    '..O..G..............O..',
-    '..O.G...............O..',
-    '..O.G........OO.....O..',
-    '..O.........OOO.....O..',
-    '..O.....OO.CO.......O..',
-    '..O.....OOOC........O..',
-    '..O......OOC........O..',
-    '..O........C........O..',
-    '..O........C........O..',
-    '..O.......CCC.......O..',
-    '..O.....GGGGGGG.....O..',
-    '.OOOOOOOOOOOOOOOOOOOOO.',
-    '.CCCCCCCCCCCCCCCCCCCCC.'
+    '.....O.....',
+    '....O.O....',
+    '...O...O...',
+    '..O.....O..',
+    '.O...C...O.',
+    'O...C.C...O',
+    '...C...C...',
+    '..C.....C..',
+    '.....G.....',
+    '....G.G....'
   ];
   function jarSvg(cls) {
     const COL = { O: 'var(--fox)', C: 'var(--ink)', G: '#8e8a84' };
-    const W = 23, H = 21;
+    const W = 11, H = 10;
     let r = '';
     JAR.forEach((row, y) => [...row].forEach((ch, x) => {
       if (COL[ch]) r += '<rect x="' + (x + 0.09) + '" y="' + (y + 0.09) + '" width="0.82" height="0.82" fill="' + COL[ch] + '"/>';
     }));
-    return svgEl('<svg class="' + (cls || '') + '" viewBox="-0.5 -1.5 ' + (W + 1) + ' ' + (H + 3) + '" shape-rendering="crispEdges" aria-hidden="true">' + r + '</svg>');
+    return svgEl('<svg class="' + (cls || '') + '" viewBox="-0.5 -1 ' + (W + 1) + ' ' + (H + 2) + '" shape-rendering="crispEdges" aria-hidden="true">' + r + '</svg>');
   }
 
   /* Tools without their own favicon get a glyph grown from their id: a 7x7
