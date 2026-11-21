@@ -1,0 +1,190 @@
+name: Build Android APK
+
+# Same pipeline as the Den: Capacitor regenerates the Android project on every
+# run, then the steps below lay Vivarium's own pieces on top of it.
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Install Capacitor
+        run: npm install
+
+      - name: Stage the web app into the webDir
+        run: |
+          mkdir -p www/vivarium
+          cp index.html www/index.html
+          cp vivarium/* www/vivarium/
+          ls -la www www/vivarium
+
+      - name: Generate the Android project
+        run: npx cap add android
+
+      # The tool server, the inbox and the plugin. MainActivity replaces the
+      # empty one Capacitor just generated.
+      - name: Add Vivarium's native code
+        run: |
+          DIR=android/app/src/main/java/io/github/foxdenlabs/vivarium
+          mkdir -p "$DIR"
+          cp native/*.java "$DIR/"
+          ls -la "$DIR"
+
+      # "Open with" and "Share" for .html files, and no cloud backup of the
+      # app's data (allowBackup off). Warns instead of failing if the
+      # generated manifest ever changes shape.
+      - name: Patch the manifest
+        run: |
+          python3 - android/app/src/main/AndroidManifest.xml <<'PY'
+          import re, sys
+          import xml.dom.minidom
+          path = sys.argv[1]
+          src = open(path, encoding='utf-8').read()
+          src = src.replace('android:allowBackup="true"', 'android:allowBackup="false"')
+          filters = '''
+                      <intent-filter>
+                          <action android:name="android.intent.action.VIEW" />
+                          <category android:name="android.intent.category.DEFAULT" />
+                          <data android:scheme="content" />
+                          <data android:scheme="file" />
+                          <data android:mimeType="text/html" />
+                          <data android:mimeType="application/xhtml+xml" />
+                      </intent-filter>
+                      <intent-filter>
+                          <action android:name="android.intent.action.SEND" />
+                          <action android:name="android.intent.action.SEND_MULTIPLE" />
+                          <category android:name="android.intent.category.DEFAULT" />
+                          <data android:mimeType="text/html" />
+                          <data android:mimeType="application/xhtml+xml" />
+                      </intent-filter>
+          '''
+          m = re.search(r'(<activity\b[^>]*android:name="\.MainActivity"[^>]*>)(.*?)(</activity>)', src, re.S)
+          if not m:
+              print('::warning::MainActivity not found in the manifest, Open with / Share left out')
+          elif 'android.intent.action.SEND' not in m.group(2):
+              src = src[:m.end(2)] + filters + '        ' + src[m.end(2):]
+          try:
+              xml.dom.minidom.parseString(src.encode('utf-8'))
+          except Exception as e:
+              print('::warning::manifest patch produced invalid XML, left untouched: %s' % e)
+              sys.exit(0)
+          open(path, 'w', encoding='utf-8').write(src)
+          print('Manifest patched.')
+          PY
+          echo "----- resulting manifest -----"
+          cat android/app/src/main/AndroidManifest.xml
+
+      - name: Set the app version
+        run: |
+          NAME="${GITHUB_REF_NAME#v}"
+          [ "$NAME" = "main" ] && NAME="0.0.${GITHUB_RUN_NUMBER}"
+          sed -i -E "s/versionCode [0-9]+/versionCode ${GITHUB_RUN_NUMBER}/" android/app/build.gradle
+          sed -i -E "s/versionName \"[^\"]*\"/versionName \"${NAME}\"/" android/app/build.gradle
+
+      - name: Copy the web assets into it
+        run: npx cap sync android
+
+      # assets/ holds icon-only, icon-foreground, icon-background and splash
+      # files, so @capacitor/assets uses them as they are.
+      - name: Generate app icons
+        run: npx @capacitor/assets generate --android
+
+      # Same as the Den: Capacitor regenerates the project every run, so the
+      # bar colours are re-applied each time. Only warns if the theme moved.
+      - name: Make the system bars black
+        run: |
+          python3 - android/app/src/main/res/values/styles.xml <<'PY'
+          import re, sys
+          import xml.dom.minidom
+          path = sys.argv[1]
+          src = open(path, encoding='utf-8').read()
+          items = [
+              ('android:windowBackground', '@android:color/black'),
+              ('android:statusBarColor', '@android:color/black'),
+              ('android:navigationBarColor', '@android:color/black'),
+              ('android:windowLightStatusBar', 'false'),
+              ('android:windowLightNavigationBar', 'false'),
+              ('android:enforceStatusBarContrast', 'false'),
+              ('android:enforceNavigationBarContrast', 'false'),
+          ]
+          m = re.search(r'(<style\s+name="AppTheme\.NoActionBar"[^>]*>)(.*?)(</style>)', src, re.S)
+          if not m:
+              print('::warning::AppTheme.NoActionBar not found in styles.xml, system bars left as generated')
+              sys.exit(0)
+          body = m.group(2)
+          for name, _ in items:
+              body = re.sub(r'[ \t]*<item\s+name="%s"[^>]*>.*?</item>[ \t]*\n?' % re.escape(name), '', body)
+          body = body.rstrip() + '\n'
+          add = ''.join('        <item name="%s">%s</item>\n' % (n, v) for n, v in items)
+          out = src[:m.start(2)] + body + add + '    ' + src[m.end(2):]
+          try:
+              xml.dom.minidom.parseString(out.encode('utf-8'))
+          except Exception as e:
+              print('::warning::styles.xml patch produced invalid XML, left untouched: %s' % e)
+              sys.exit(0)
+          open(path, 'w', encoding='utf-8').write(out)
+          print('System bars patched.')
+          PY
+
+      # Same permanent key setup as the Den. The secrets can be the very same
+      # values; one key can sign any number of apps.
+      - name: Decode the signing keystore
+        run: echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+
+      - name: Build the release APK
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleRelease \
+            -Pandroid.injected.signing.store.file="$RUNNER_TEMP/release.keystore" \
+            -Pandroid.injected.signing.store.password="$KEYSTORE_PASSWORD" \
+            -Pandroid.injected.signing.key.alias="$KEY_ALIAS" \
+            -Pandroid.injected.signing.key.password="$KEY_PASSWORD"
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+
+      - name: Rename the APK
+        run: cp android/app/build/outputs/apk/release/app-release.apk vivarium.apk
+
+      - name: Upload APK as an artifact
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: vivarium-apk
+          path: vivarium.apk
+
+      - name: Attach the APK to the release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: vivarium.apk
