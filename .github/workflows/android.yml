@@ -47,7 +47,8 @@ jobs:
       - name: Generate the Android project
         run: npx cap add android
 
-      # The tool server, the inbox and the plugin. MainActivity replaces the
+      # The tool server, the inbox, the plugin and the abilities (reading
+      # sites, notifications, background wake-ups). MainActivity replaces the
       # empty one Capacitor just generated.
       - name: Add Vivarium's native code
         run: |
@@ -55,10 +56,15 @@ jobs:
           mkdir -p "$DIR"
           cp native/*.java "$DIR/"
           ls -la "$DIR"
+          for f in MainActivity ToolServer ToolHostClient Inbox VivariumPlugin Abilities Notifier WakeJob WakeRunner; do
+            [ -f "$DIR/$f.java" ] || { echo "::error::native/$f.java is missing"; exit 1; }
+          done
 
-      # "Open with" and "Share" for .html files, and no cloud backup of the
-      # app's data (allowBackup off). Warns instead of failing if the
-      # generated manifest ever changes shape.
+      # "Open with" and "Share" for .html files, no cloud backup of the app's
+      # data (allowBackup off), and what the tool abilities need: the
+      # notification permission, the wake-up job (which survives reboots) and
+      # the battery shortcut. Warns instead of failing if the generated
+      # manifest ever changes shape.
       - name: Patch the manifest
         run: |
           python3 - android/app/src/main/AndroidManifest.xml <<'PY'
@@ -89,6 +95,25 @@ jobs:
               print('::warning::MainActivity not found in the manifest, Open with / Share left out')
           elif 'android.intent.action.SEND' not in m.group(2):
               src = src[:m.end(2)] + filters + '        ' + src[m.end(2):]
+          service = (
+              '        <service android:name=".WakeJob"\n'
+              '            android:permission="android.permission.BIND_JOB_SERVICE"\n'
+              '            android:exported="false" />\n'
+          )
+          if '.WakeJob' not in src:
+              if '</application>' in src:
+                  src = src.replace('</application>', service + '    </application>', 1)
+              else:
+                  print('::warning::no </application> in the manifest, background wake-ups left out')
+          perms = [
+              'android.permission.POST_NOTIFICATIONS',
+              'android.permission.RECEIVE_BOOT_COMPLETED',
+              'android.permission.ACCESS_NETWORK_STATE',
+              'android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS',
+          ]
+          add = ''.join('    <uses-permission android:name="%s" />\n' % p for p in perms if p not in src)
+          if add:
+              src = src.replace('</manifest>', add + '</manifest>', 1)
           try:
               xml.dom.minidom.parseString(src.encode('utf-8'))
           except Exception as e:
