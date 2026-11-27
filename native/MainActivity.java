@@ -14,6 +14,22 @@ import com.getcapacitor.BridgeActivity;
  */
 public class MainActivity extends BridgeActivity {
 
+    // On screen right now. A background wake for the tool that is open goes
+    // to that tool instead of starting a second, hidden copy.
+    static volatile boolean resumed;
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        resumed = true;
+    }
+
+    @Override
+    public void onPause() {
+        resumed = false;
+        super.onPause();
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         registerPlugin(VivariumPlugin.class);
