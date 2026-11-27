@@ -474,7 +474,7 @@
     const go = async () => {
       await sleep(300);
       const info = await infoReady;
-      try { await runWake({ reason: 'schedule', network: info.network || null, headless: true }); } catch (e) {}
+      try { await runWake({ reason: info.reason || 'schedule', network: info.network || null, headless: true }); } catch (e) {}
       try { await flush(); } catch (e) {}
       try { line.postMessage(JSON.stringify({ op: 'done' })); } catch (e) {}
     };
