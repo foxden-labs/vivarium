@@ -29,8 +29,9 @@ Keep expectations in check. The tool works for me, and I'll mostly fix what does
 - Shows them as tiles. Tap to open, hold for options.
 - Runs each tool full screen, with no browser bars.
 - Gives each tool its own storage. Tools cannot see each other's data.
+- Can give a tool abilities a web page doesn't have: reading other sites, notifications, waking up in the background. Only if you say yes, per tool.
 
-No ads. No tracking. No account. Vivarium itself never connects to anything. Tools can, if they are written to.
+No ads. No tracking. No account. Vivarium never connects to anything on its own. Tools can, if they are written to, and a tool you allow can read other sites through it.
 
 ## Install
 
@@ -57,7 +58,7 @@ A tool can:
 
 A tool cannot:
 - read or change another tool's storage, or the shelf's
-- call the app's native side (Capacitor only answers `https://localhost`)
+- call the app's native side directly (Capacitor only answers `https://localhost`). It can ask the shelf for an ability, and the shelf only passes the request on if you allowed it
 - be loaded inside another tool (its pages send `frame-ancestors 'self' https://localhost`)
 - wipe another tool through the storage helper (the helper only acts when the shelf loaded it directly)
 - read your files without you picking them
@@ -72,13 +73,14 @@ Hold a tile.
 |---|---|
 | Update from file | Swaps the file. Saved data stays. |
 | Rename | Changes the label only. |
+| Permissions | What the tool may do beyond a web page: read other sites, notifications, background. Change or reset any answer. |
 | Hide system bars | Status and navigation bars hidden while the tool is open. Swipe from an edge to show them. |
 | Pin to home screen | Home screen icon that opens straight into the tool. |
 | Save a copy | Writes the `.html` to `Documents/Vivarium/`. |
 | Wipe its data | Empties the tool's storage. The tool stays. |
 | Remove | Removes the tool. Asks whether to keep or wipe its data. |
 
-A square in the corner of a tile means the tool has saved data.
+A square in the corner of a tile means the tool has saved data. A hollow one that blinks now and then means it wakes in the background.
 
 ## Tool identity
 
@@ -103,6 +105,68 @@ The app adds a small script to every tool page when it serves it. The file on di
 | `<input type="file">` | Accepts any file. Android otherwise hides unknown extensions. |
 | `font-family: "JetBrains Mono"` | Bundled, works offline. |
 
+## Abilities
+
+A tool can ask for more than a web page gets. The first time it does, Vivarium asks you, Firefox style, and remembers the answer for that tool. Hold its tile and open **Permissions** to change it.
+
+| Ability | Asked when | Choices |
+|---|---|---|
+| Read other sites | The tool first reads a page | Allow any site, only that site, or block |
+| Notifications | The tool calls `Notification.requestPermission()` | Allow or block. Android asks once for the whole app too |
+| Background | The tool asks to be woken on a schedule | Allow or block |
+
+Blocking means the tool is never asked about it again, and its requests fail quietly until you change the answer.
+
+### In the tool
+
+Everything is on `window.vivarium`, which only exists inside Vivarium.
+
+```js
+// Read a page. GET only, no cookies, no logins: the page as a stranger sees it.
+const r = await vivarium.fetch('https://shop.example/item');
+r.ok; r.status; r.url; r.type; r.text; r.bytes;
+
+// Pictures and other binary files.
+const img = await vivarium.fetch(url, { as: 'dataurl' });   // img.dataUrl
+
+// The same page after its own scripts ran, for shops that build everything in JS.
+const page = await vivarium.render(url, { settle: 3000, waitFor: '.price' });   // page.text is the HTML
+
+// Notifications: the standard API.
+await Notification.requestPermission();
+new Notification('Back in stock', {
+  body: 'Thing · 49 €', tag: 'thing', icon: dataUrl, data: { id: 7 },
+  url: 'https://shop.example/item',                     // a tap opens this in the browser
+  actions: [{ action: 'open', title: 'Open the tool' }]  // up to two
+});
+vivarium.onNotificationClick(({ tag, action, data }) => { /* the tool was opened by a tap */ });
+
+// Background.
+await vivarium.wake.every(60);          // minutes, 15 at least
+vivarium.onWake(async ({ network }) => { /* runs on schedule, even with the app closed */ });
+await vivarium.wake.get();              // { every, last, next }
+await vivarium.wake.stop();
+
+vivarium.permission('sites');           // 'granted' | 'denied' | 'prompt'
+await vivarium.network();               // { online, metered, wifi }
+vivarium.headless;                      // true while running in the background
+```
+
+Failed calls reject with an error whose `code` is one of `not-allowed`, `blocked-host`, `bad-url`, `network`, `timeout`, `blocked` (notifications are off in Android) or `unsupported`.
+
+### Background, in practice
+
+When a tool is due, Vivarium loads it alone in a hidden WebView on its own origin, so it sees its own storage and nothing else. The shim runs the tool's `onWake` handlers (75 seconds at most), fires `pagehide` so it saves, and closes it. If the tool is open on screen at that moment, that copy gets the wake instead. A tool open in the background while a hidden copy runs gets the usual `storage` events.
+
+Android runs the schedule, every 15 minutes at the most. It stretches that when the phone sleeps, and some phones stop it entirely for apps with restricted battery use. Permissions shows a shortcut when that's the case.
+
+### What reading a site can't do
+
+- Reach this phone or the local network: `localhost`, `*.local`, private and link-local addresses are refused, on every redirect too.
+- Send cookies or logins. Fetches carry none. Rendered pages run in their own WebView profile, away from tools and the shelf.
+- Download images, fonts or video when rendering.
+- Read more than 8 MB per page.
+
 ## Saving on close
 
 When a tool closes, Vivarium fires `pagehide` in it and waits.
@@ -119,7 +183,8 @@ Both are optional. Tools without them close after `pagehide` fires. Tools that s
 - The Fullscreen API does nothing. Use **Hide system bars**.
 - Tools imported into the Den or a browser keep their data there. Export from the old place, import inside the tool in Vivarium.
 - Uninstalling the app deletes every tool and all their data. Android backup is switched off, so nothing goes to a cloud.
-- Opened in a desktop browser, `index.html` works as a preview but without separate origins. All tools share one storage there.
+- Opened in a desktop browser, `index.html` works as a preview but without separate origins. All tools share one storage there. Abilities are Android only.
+- `vivarium.render` needs a WebView that can keep a separate profile (any current Android System WebView). Older ones answer `unsupported`.
 
 ## Where things are on the phone
 
@@ -129,6 +194,9 @@ In the app's private storage:
 library.json            the shelf
 tools/<id>/tool.html    each tool, as imported
 inbox/                  files that came in through Open with / Share, deleted after import
+grants.json             what each tool is allowed, for the background runner
+wakes.json              which tools wake, how often, last and next
+icons/<id>.png          a tool's icon, for its notifications
 ```
 
 Each tool's own storage is in the WebView's data for its origin.
@@ -166,13 +234,17 @@ vivarium/jbm.woff2
 native/ToolServer.java      serves https://<id>.vivarium.localhost
 native/ToolHostClient.java  puts ToolServer in front of Capacitor
 native/Inbox.java           Open with / Share
-native/VivariumPlugin.java  shortcuts, keep awake, hide bars, external links
+native/VivariumPlugin.java  shortcuts, keep awake, hide bars, external links, abilities
+native/Abilities.java       reading other sites (fetch, render)
+native/Notifier.java        notifications, one channel per tool
+native/WakeJob.java         the background schedule
+native/WakeRunner.java      runs one tool in a hidden WebView
 native/MainActivity.java
 assets/                     icon and splash sources
 .github/workflows/android.yml
 ```
 
-The Android project is generated fresh by Capacitor on every build. The workflow copies `native/` into it and patches the manifest.
+The Android project is generated fresh by Capacitor on every build. The workflow copies `native/` into it, checks all nine files arrived, and patches the manifest.
 
 ## License
 

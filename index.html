@@ -257,6 +257,37 @@ svg { display: block; }
 .about-text { margin-top: 14px; font-family: var(--mono); font-size: 11.5px; line-height: 1.75; color: var(--ink-soft); }
 .about-text .dim { color: var(--ink-dim); }
 
+/* ---- Waking tools: a small eye that blinks now and then ---- */
+.tile-wake {
+  position: absolute; right: 24px; top: 14px;
+  width: 6px; height: 6px; border: 1px solid var(--accent);
+  animation: blink 7.2s steps(1, end) infinite;
+  animation-delay: calc(var(--i, 0) * -1.3s);
+}
+@keyframes blink { 0%, 96% { transform: none; } 97%, 99% { transform: scaleY(0.15); } }
+
+/* ---- Permissions ---- */
+.permit-who { display: flex; gap: 12px; align-items: center; margin-bottom: 14px; }
+.permit-icon { width: 34px; height: 34px; flex-shrink: 0; color: var(--accent, var(--fox)); }
+.permit-icon img, .permit-icon svg { width: 100%; height: 100%; object-fit: contain; }
+.permit-name { font-family: var(--sans); font-weight: 700; font-size: 12px; letter-spacing: 1.6px; text-transform: uppercase; color: var(--ink); }
+.permit-what { display: flex; align-items: center; gap: 6px; margin-top: 3px; font-family: var(--mono); font-size: 10.5px; color: var(--ink-dim); }
+.permit-what svg { width: 12px; height: 12px; }
+.permit-host {
+  display: inline-block; margin: 0 2px; padding: 1px 6px;
+  border: 1px solid var(--line); background: var(--bg);
+  font-family: var(--mono); color: var(--ink); word-break: break-all;
+}
+.permit-note { margin-top: 10px; font-size: 11px; color: var(--ink-dim); }
+.pop.accented::before {
+  content: ''; position: absolute; left: -1px; right: -1px; top: -1px; height: 2px;
+  background: var(--accent, var(--fox));
+  transform-origin: left; transform: scaleX(0);
+  transition: transform 460ms var(--out) 90ms;
+}
+.pop.accented.in::before { transform: scaleX(1); }
+.row-tail { font-family: var(--mono); font-size: 10.5px; color: var(--ink-dim); flex-shrink: 0; }
+
 /* ---- Popup ---- */
 .pop-host { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; padding: 24px; }
 .pop-host .scrim { z-index: 0; position: absolute; }
@@ -407,7 +438,9 @@ svg { display: block; }
 
   let lib = { v: 1, sort: 'recent', tools: [] };
   /* tool: { id, name, title, size, hash, icon, accent, added, updated,
-             opened, opens, usage, immersive } */
+             opened, opens, usage, immersive, grants, iconFor }
+     grants: { sites: 'any' | [hosts] , sitesBlocked, notifications, background }
+             notifications and background are 'granted' or 'denied'. */
 
   async function loadLibrary() {
     try {
@@ -585,7 +618,13 @@ svg { display: block; }
     bars: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><rect x="5" y="3" width="14" height="18"/><path d="M5 7h14M5 17h14" stroke-dasharray="2 2"/></svg>',
     wipe: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><path d="M4 20h16M7 16l9-9 3 3-9 9H7z"/></svg>',
     doc: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><path d="M6 3h9l4 4v14H6zM14 3v5h5M9 12h7M9 16h7"/></svg>',
-    remove: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><path d="M5 7h14M9 7V4h6v3M7 7l1 13h8l1-13"/></svg>'
+    remove: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><path d="M5 7h14M9 7V4h6v3M7 7l1 13h8l1-13"/></svg>',
+    web: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><rect x="3" y="5" width="18" height="14"/><path d="M3 9h18M6 7h1M9 7h1"/></svg>',
+    bell: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><path d="M7 16V10l2-3h6l2 3v6l2 2H5zM10 21h4M12 4v3"/></svg>',
+    clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><rect x="4" y="4" width="16" height="16"/><path d="M12 8v4l3 2"/></svg>',
+    keys: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><rect x="4" y="10" width="16" height="10"/><path d="M8 10V6h8v4M12 14v2"/></svg>',
+    run: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><path d="M8 5l10 7-10 7z"/></svg>',
+    battery: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><rect x="3" y="7" width="16" height="10"/><path d="M21 10v4M6 10v4M9 10v4"/></svg>'
   };
   const ico = (k) => svgEl(ICON[k]);
 
@@ -679,6 +718,7 @@ svg { display: block; }
     },
       el('span', { class: 'tile-icon' }, iconNode(t)),
       inhabited ? el('span', { class: 'tile-pip', title: 'Has saved data' }) : null,
+      wakesNow(t) ? el('span', { class: 'tile-wake', title: 'Wakes in the background' }) : null,
       el('span', { class: 'tile-name' }, t.name),
       el('span', { class: 'tile-meta' }, fmtBytes(t.size) + ' · ' + fmtAgo(t.opened))
     );
@@ -780,7 +820,8 @@ svg { display: block; }
       if (popSt) popSt.close(null);
       const scrim = el('div', { class: 'scrim' });
       const actions = el('div', { class: 'pop-actions' });
-      const box = el('div', { class: 'pop', role: 'dialog', 'aria-label': title },
+      const box = el('div', { class: 'pop' + (opts.accent ? ' accented' : ''), role: 'dialog', 'aria-label': title,
+        style: opts.accent ? { '--accent': opts.accent } : null },
         el('div', { class: 'pop-title' }, title),
         body != null ? el('div', { class: 'pop-body' }, body) : null,
         actions);
@@ -1037,6 +1078,7 @@ svg { display: block; }
     const pinRow = row('pin', 'Pin to home screen', 'Opens straight into ' + t.name, () => pinShortcut(t.id));
     if (!NATIVE) pinRow.disabled = true;
     const wipeRow = row('wipe', 'Wipe its data', 'The tool stays, its storage empties', () => wipeData(t.id), 'danger');
+    const permRow = row('keys', 'Permissions', grantSummary(t), () => permsSheet(t.id));
     if (!NATIVE) wipeRow.disabled = true;
 
     openSheet([
@@ -1056,6 +1098,7 @@ svg { display: block; }
         row('open', 'Open', null, () => { closeSheet(); openTool(t.id); }),
         row('update', 'Update from file', 'Keeps its saved data', () => { closeSheet(); updateFromFile(t.id); }),
         row('rename', 'Rename', 'Only the label, the enclosure stays', () => rename(t.id)),
+        permRow,
         barsRow,
         pinRow,
         row('copy', 'Save a copy', 'The .html, to Documents/Vivarium', () => exportFile(t.id)),
@@ -1120,10 +1163,16 @@ svg { display: block; }
     if (!choice) return;
     if (choice === 'wipe') await keeper(id, 'wipe');
     await store.removeDir('tools/' + id);
+    await store.remove('icons/' + id + '.png');
     lib.tools = lib.tools.filter((x) => x.id !== id);
+    delete wakes[id];
     await saveLibrary();
+    writeGrants();
     const V = plug('Vivarium');
-    if (NATIVE && V) V.disableShortcut({ id }).catch(() => {});
+    if (NATIVE && V) {
+      V.disableShortcut({ id }).catch(() => {});
+      V.forgetTool({ id }).catch(() => {});
+    }
     closeSheet();
     render();
     toast('Removed ' + t.name);
@@ -1239,7 +1288,7 @@ svg { display: block; }
     return { src: url, blobUrl: url };
   }
 
-  async function openTool(id, fromNode) {
+  async function openTool(id, fromNode, opts) {
     const t = byId(id);
     if (!t || toolSt || opening) return;
     opening = true;
@@ -1271,7 +1320,8 @@ svg { display: block; }
     fr.src = src.src;
     const layer = el('div', { class: 'tool-layer', role: 'dialog', 'aria-label': t.name, style: { '--accent': t.accent || 'var(--fox)' } },
       el('div', { class: 'tool-stage' }, card, fr));
-    toolSt = { t, layer, fr, card, label, ox, oy, closing: false, ready: false, blobUrl: src.blobUrl || null, wake: false };
+    toolSt = { t, layer, fr, card, label, ox, oy, closing: false, ready: false, blobUrl: src.blobUrl || null, wake: false,
+      click: (opts && opts.click) || null };
     const S = toolSt;
 
     fr.addEventListener('load', () => {
@@ -1294,6 +1344,7 @@ svg { display: block; }
 
     const V = plug('Vivarium');
     if (NATIVE && V && t.immersive) V.setImmersive({ on: true }).catch(() => {});
+    if (NATIVE && V) V.setOpenTool({ id: t.id }).catch(() => {});
 
     t.opened = Date.now();
     t.opens = (t.opens || 0) + 1;
@@ -1344,6 +1395,7 @@ svg { display: block; }
     if (NATIVE && V) {
       if (S.t.immersive) V.setImmersive({ on: false }).catch(() => {});
       if (S.wake) V.setKeepAwake({ on: false }).catch(() => {});
+      V.setOpenTool({ id: null }).catch(() => {});
     } else if (S.wakeSentinel) { try { S.wakeSentinel.release(); } catch (e) {} }
 
     $app.style.visibility = '';
@@ -1397,7 +1449,11 @@ svg { display: block; }
 
     switch (m.t) {
       case 'hello':
-        try { e.source.postMessage({ vv: 1, t: 'init', native: NATIVE }, NATIVE ? e.origin : '*'); } catch (err) {}
+        try { e.source.postMessage({ vv: 1, t: 'init', native: NATIVE, perms: permsOf(S.t) }, NATIVE ? e.origin : '*'); } catch (err) {}
+        if (S.click) { const c = S.click; S.click = null; tell(S, Object.assign({ t: 'nclick' }, c)); }
+        break;
+      case 'cap':
+        handleCap(S, m);
         break;
       case 'status':
       case 'flushed': {
@@ -1437,6 +1493,365 @@ svg { display: block; }
   });
 
   /* ═════════════════════════════════════════════════════════════════
+     ABILITIES: what a tool may ask for, and what you said
+     Tools ask through the shim; nothing reaches native code unless the
+     grant is there. grants.json mirrors the yeses for the background
+     runner, which has no shelf to ask.
+     ═════════════════════════════════════════════════════════════════ */
+
+  let wakes = {};          // id -> { every, last, next }, from native
+  let osNotify = 'prompt'; // Android's own answer for the whole app
+  const MIN_WAKE = 15, MAX_WAKE = 1440;
+
+  const failWith = (code, message) => { const e = new Error(message || code); e.code = code; return e; };
+  const grantsOf = (t) => t.grants || (t.grants = {});
+  const bareHost = (h) => String(h || '').toLowerCase().replace(/^www\./, '');
+  const fmtEvery = (m) => m % 60 === 0 ? (m / 60) + 'h' : m + 'm';
+  const fmtIn = (ts) => {
+    const s = Math.round((ts - Date.now()) / 60000);
+    if (s <= 0) return 'due';
+    return s < 60 ? 'in ' + s + 'm' : 'in ' + Math.round(s / 60) + 'h';
+  };
+
+  function permsOf(t) {
+    const g = t.grants || {};
+    return {
+      sites: g.sites === 'any' ? 'granted' : g.sitesBlocked ? 'denied' : 'prompt',
+      notifications: g.notifications === 'granted' ? (osNotify === 'denied' ? 'denied' : 'granted')
+        : g.notifications === 'denied' ? 'denied' : 'prompt',
+      background: g.background === 'granted' ? 'granted' : g.background === 'denied' ? 'denied' : 'prompt'
+    };
+  }
+  function siteAllowed(t, host) {
+    const g = t.grants || {};
+    if (g.sites === 'any') return true;
+    host = String(host || '').toLowerCase();
+    return Array.isArray(g.sites) && g.sites.some((h) => host === h || host.endsWith('.' + h));
+  }
+  const allowOf = (t) => (t.grants && (t.grants.sites === 'any' || Array.isArray(t.grants.sites))) ? t.grants.sites : [];
+  const wakesNow = (t) => !!(wakes[t.id] && t.grants && t.grants.background === 'granted');
+
+  function grantSummary(t) {
+    const g = t.grants || {};
+    const bits = [];
+    if (g.sites === 'any') bits.push('any site');
+    else if (Array.isArray(g.sites) && g.sites.length) bits.push(g.sites.length === 1 ? g.sites[0] : g.sites.length + ' sites');
+    if (g.notifications === 'granted') bits.push('notifications');
+    if (g.background === 'granted') bits.push(wakes[t.id] ? 'wakes every ' + fmtEvery(wakes[t.id].every) : 'background');
+    if (bits.length) return bits.join(' · ');
+    return g.sitesBlocked || g.notifications || g.background ? 'Some blocked' : 'Nothing asked yet';
+  }
+
+  function writeGrants() {
+    const out = {};
+    for (const t of lib.tools) {
+      const g = t.grants;
+      if (!g) continue;
+      const e = {
+        net: g.sites === 'any' ? 'any' : Array.isArray(g.sites) ? g.sites : [],
+        notify: g.notifications === 'granted',
+        wake: g.background === 'granted'
+      };
+      if (e.net === 'any' || e.net.length || e.notify || e.wake) out[t.id] = e;
+    }
+    return store.write('grants.json', JSON.stringify(out)).catch(() => {});
+  }
+
+  function grantsChanged(t) {
+    saveLibrary();
+    writeGrants();
+    const S = toolSt;
+    if (S && S.t === t && S.ready) tell(S, { t: 'perms', perms: permsOf(t) });
+  }
+
+  function tell(S, msg) {
+    msg.vv = 1;
+    try { S.fr.contentWindow.postMessage(msg, NATIVE ? toolOrigin(S.t.id) : '*'); } catch (e) {}
+  }
+
+  /* One question at a time, even when a tool fires off five requests at once. */
+  let permitChain = Promise.resolve();
+  function permit(fn) {
+    const p = permitChain.then(fn);
+    permitChain = p.catch(() => {});
+    return p;
+  }
+
+  function permitBody(t, kind, text, note) {
+    return el('div', {},
+      el('div', { class: 'permit-who' },
+        el('div', { class: 'permit-icon' }, iconNode(t)),
+        el('div', { style: { minWidth: '0' } },
+          el('div', { class: 'permit-name' }, t.name),
+          el('div', { class: 'permit-what' }, ico(kind), t.id + HOST_SUFFIX))),
+      el('div', {}, text),
+      note ? el('div', { class: 'permit-note' }, note) : null);
+  }
+
+  async function askSites(t, host) {
+    if (host ? siteAllowed(t, host) : grantsOf(t).sites === 'any') return true;
+    if (grantsOf(t).sitesBlocked) return false;
+    if (!toolSt || toolSt.t !== t) return false;
+    const h = host ? bareHost(host) : '';
+    const text = h
+      ? [t.name + ' wants to read pages on ', el('span', { class: 'permit-host' }, h), '.']
+      : [t.name + ' wants to read pages on other sites.'];
+    const buttons = [{ label: 'Allow any site', value: 'any', kind: 'primary' }];
+    if (h) buttons.push({ label: 'Only ' + h, value: 'host' });
+    buttons.push({ label: 'Block', value: 'block' });
+    const v = await popup('Read other sites', permitBody(t, 'web', text,
+      'Pages come back the way a stranger would see them: no cookies, no logins. Nothing on this phone or your network is reachable.'),
+      buttons, { accent: t.accent || 'var(--fox)' });
+    const g = grantsOf(t);
+    if (v === 'any') { g.sites = 'any'; g.sitesBlocked = false; }
+    else if (v === 'host') { g.sites = Array.isArray(g.sites) ? g.sites.concat(h) : [h]; g.sitesBlocked = false; }
+    else if (v === 'block') { g.sitesBlocked = true; }
+    else return false;
+    grantsChanged(t);
+    haptic(12);
+    return host ? siteAllowed(t, host) : g.sites === 'any';
+  }
+
+  async function askNotify(t) {
+    const g = grantsOf(t);
+    if (g.notifications === 'denied') return false;
+    if (g.notifications !== 'granted') {
+      if (!toolSt || toolSt.t !== t) return false;
+      const v = await popup('Send notifications', permitBody(t, 'bell',
+        t.name + ' wants to show notifications, also while Vivarium is closed.',
+        'Each tool gets its own channel in Android’s settings, so you can quiet one without the rest.'),
+        [{ label: 'Allow', value: 'granted', kind: 'primary' }, { label: 'Block', value: 'denied' }],
+        { accent: t.accent || 'var(--fox)' });
+      if (!v) return false;
+      g.notifications = v;
+      grantsChanged(t);
+      haptic(12);
+      if (v !== 'granted') return false;
+    }
+    await systemNotify(true);
+    if (osNotify === 'denied') toast('Android has notifications off for Vivarium', 2800);
+    grantsChanged(t);
+    ensureToolIcon(t);
+    return osNotify === 'granted';
+  }
+
+  async function askBackground(t, minutes) {
+    const g = grantsOf(t);
+    if (g.background === 'granted') return true;
+    if (g.background === 'denied') return false;
+    if (!toolSt || toolSt.t !== t) return false;
+    const every = minutes ? fmtEvery(clampWake(minutes)) : null;
+    const battery = await batteryOk();
+    const v = await popup('Wake in the background', permitBody(t, 'clock',
+      t.name + ' wants to run on its own' + (every ? ', about every ' + every : '') + ', while Vivarium is closed.',
+      [ 'It can only use what you allowed it here. Android picks the exact moment and stretches it when the phone sleeps.',
+        battery === false ? el('div', { style: { marginTop: '8px', color: 'var(--ink-soft)' } },
+          'Vivarium’s battery use is restricted, which can stop wake-ups. Permissions has a shortcut to fix that.') : null ]),
+      [{ label: 'Allow', value: 'granted', kind: 'primary' }, { label: 'Block', value: 'denied' }],
+      { accent: t.accent || 'var(--fox)' });
+    if (!v) return false;
+    g.background = v;
+    grantsChanged(t);
+    haptic(12);
+    return v === 'granted';
+  }
+
+  const clampWake = (m) => Math.max(MIN_WAKE, Math.min(MAX_WAKE, Math.round(+m || 60)));
+
+  async function systemNotify(ask) {
+    const V = plug('Vivarium');
+    if (!NATIVE || !V) { osNotify = 'granted'; return osNotify; }
+    try { osNotify = (await (ask ? V.requestNotify() : V.notifyState())).state || osNotify; } catch (e) {}
+    return osNotify;
+  }
+  async function batteryOk() {
+    const V = plug('Vivarium');
+    if (!NATIVE || !V) return null;
+    try { return !!(await V.batteryState()).unrestricted; } catch (e) { return null; }
+  }
+  async function refreshWakes() {
+    const V = plug('Vivarium');
+    if (!NATIVE || !V) return wakes;
+    try { wakes = (await V.getWakes()).wakes || {}; } catch (e) {}
+    return wakes;
+  }
+
+  /* The notification's large icon when the tool sends none: the same picture
+     a pinned shortcut gets, written where the native side can find it. */
+  async function ensureToolIcon(t) {
+    const FS = plug('Filesystem');
+    if (!NATIVE || !FS || t.iconFor === t.hash) return;
+    try {
+      await FS.writeFile({ path: 'icons/' + t.id + '.png', data: await shortcutIcon(t), directory: 'DATA', recursive: true });
+      t.iconFor = t.hash;
+      saveLibrary();
+    } catch (e) {}
+  }
+
+  function webTarget(raw) {
+    let u;
+    try { u = new URL(String(raw)); } catch (e) { throw failWith('bad-url', 'needs a full http(s) address'); }
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') throw failWith('bad-url', 'only http and https');
+    return u;
+  }
+
+  async function runCap(S, op, a) {
+    const t = S.t;
+    const V = plug('Vivarium');
+    const native = () => { if (!NATIVE || !V) throw failWith('unsupported', 'only inside Vivarium on Android'); };
+    switch (op) {
+      case 'fetch':
+      case 'render': {
+        const u = webTarget(a.url);
+        if (!await permit(() => askSites(t, u.hostname))) throw failWith('not-allowed', 'not allowed to read ' + u.hostname);
+        native();
+        const args = {
+          url: u.href, allow: allowOf(t), as: a.as === 'base64' ? 'base64' : 'text',
+          headers: a.headers && typeof a.headers === 'object' ? a.headers : null,
+          maxBytes: a.maxBytes, timeout: a.timeout, settle: a.settle, waitFor: a.waitFor
+        };
+        Object.keys(args).forEach((k) => { if (args[k] == null) delete args[k]; });
+        return op === 'fetch' ? V.fetchPage(args) : V.renderPage(args);
+      }
+      case 'network':
+        if (!NATIVE || !V) return { online: navigator.onLine, metered: false, wifi: false, render: false };
+        return V.network();
+      case 'notify':
+        if (permsOf(t).notifications !== 'granted') throw failWith('not-allowed', 'notifications not allowed');
+        native();
+        await ensureToolIcon(t);
+        await V.postNotification({ id: t.id, n: a });
+        return {};
+      case 'notify-close':
+        if (NATIVE && V) await V.closeNotification({ id: t.id, tag: String(a.tag || '') });
+        return {};
+      case 'request': {
+        if (a.name === 'notifications') await permit(() => askNotify(t));
+        else if (a.name === 'background') await permit(() => askBackground(t, a.minutes));
+        else if (a.name === 'sites') {
+          let host = null;
+          if (a.host) { try { host = new URL(/^https?:/i.test(a.host) ? a.host : 'https://' + a.host).hostname; } catch (e) {} }
+          await permit(() => askSites(t, host));
+        } else throw failWith('unsupported', 'no such permission');
+        const p = permsOf(t);
+        return { state: a.name === 'sites' && a.host && siteAllowed(t, bareHost(a.host)) ? 'granted' : p[a.name], perms: p };
+      }
+      case 'wake-every': {
+        const m = clampWake(a.minutes);
+        if (!await permit(() => askBackground(t, m))) throw failWith('not-allowed', 'background not allowed');
+        native();
+        const r = await V.setWake({ id: t.id, every: m });
+        wakes[t.id] = r;
+        return r;
+      }
+      case 'wake-stop':
+        if (NATIVE && V) await V.clearWake({ id: t.id });
+        delete wakes[t.id];
+        return {};
+      case 'wake-get':
+        await refreshWakes();
+        return wakes[t.id] || {};
+    }
+    throw failWith('unsupported', op + ' is not something Vivarium does');
+  }
+
+  async function handleCap(S, m) {
+    let msg;
+    try {
+      const value = await runCap(S, String(m.op || ''), m.args && typeof m.args === 'object' ? m.args : {});
+      msg = { t: 'cap', seq: m.seq, ok: true, value: value == null ? {} : JSON.parse(JSON.stringify(value)) };
+    } catch (e) {
+      msg = { t: 'cap', seq: m.seq, ok: false, error: (e && e.code) || 'failed', message: (e && e.message) || '' };
+    }
+    if (toolSt === S) tell(S, msg);
+  }
+
+  /* ----- Permissions sheet ----- */
+
+  async function permsSheet(id) {
+    const t = byId(id);
+    if (!t) return;
+    await Promise.all([refreshWakes(), systemNotify(false)]);
+    const g = grantsOf(t);
+    const V = plug('Vivarium');
+    const battery = g.background === 'granted' ? await batteryOk() : null;
+
+    const row = (k, title, sub, fn, cls, tail) => el('button', {
+      class: 'row' + (cls ? ' ' + cls : ''), onclick: () => { haptic(8); fn(); }
+    }, el('span', { class: 'row-ico' }, ico(k)),
+      el('span', { class: 'row-main' }, el('div', { class: 'row-title' }, title), sub ? el('div', { class: 'row-sub' }, sub) : null),
+      tail || null);
+    const sw = (on) => el('span', { class: 'switch', 'aria-hidden': 'true' });
+    const again = () => { closeSheet(true); permsSheet(id); };
+
+    const sitesSub = g.sites === 'any' ? 'Any site'
+      : Array.isArray(g.sites) && g.sites.length ? g.sites.join(', ')
+      : g.sitesBlocked ? 'Blocked' : 'Not asked yet';
+    const sitesRow = row('web', 'Read other sites', sitesSub, async () => {
+      const v = await popup('Read other sites', permitBody(t, 'web', t.name + ' may read:'), [
+        { label: 'Any site', value: 'any', kind: 'primary' },
+        { label: 'Ask for each site', value: 'ask' },
+        { label: 'Block', value: 'block', kind: 'danger' }
+      ], { accent: t.accent || 'var(--fox)' });
+      if (!v) return;
+      if (v === 'any') { g.sites = 'any'; g.sitesBlocked = false; }
+      else if (v === 'ask') { g.sites = Array.isArray(g.sites) ? g.sites : []; g.sitesBlocked = false; }
+      else { g.sites = []; g.sitesBlocked = true; }
+      grantsChanged(t);
+      again();
+    });
+
+    const nOn = g.notifications === 'granted';
+    const nSub = nOn ? (osNotify === 'denied' ? 'Allowed here, but off in Android settings' : 'Allowed')
+      : g.notifications === 'denied' ? 'Blocked' : 'Not asked yet';
+    const notifyRow = row('bell', 'Notifications', nSub, async () => {
+      g.notifications = nOn ? 'denied' : 'granted';
+      if (!nOn) { await systemNotify(true); ensureToolIcon(t); }
+      grantsChanged(t);
+      again();
+    }, nOn ? 'on' : '', sw());
+
+    const bOn = g.background === 'granted';
+    const w = wakes[t.id];
+    const bSub = bOn ? (w ? 'Every ' + fmtEvery(w.every) + ' · last ' + fmtAgo(w.last) + ' · next ' + fmtIn(w.next) : 'Allowed, not scheduled')
+      : g.background === 'denied' ? 'Blocked' : 'Not asked yet';
+    const wakeRow = row('clock', 'Background', bSub, async () => {
+      g.background = bOn ? 'denied' : 'granted';
+      if (bOn) { delete wakes[t.id]; if (NATIVE && V) await V.clearWake({ id: t.id }).catch(() => {}); }
+      grantsChanged(t);
+      render();
+      again();
+    }, bOn ? 'on' : '', sw());
+
+    const extra = [];
+    if (bOn && w && NATIVE && V) extra.push(row('run', 'Wake it now', 'Runs it in the background once, as a test', () => {
+      V.wakeNow({ id: t.id }).then(() => toast('Waking ' + t.name)).catch(() => toast('Could not wake it'));
+    }));
+    if (bOn && battery === false && NATIVE && V) extra.push(row('battery', 'Battery is restricted', 'Wake-ups may stop. Tap to allow Vivarium to run unrestricted', () => {
+      V.openBatterySettings().catch(() => {});
+    }, 'danger'));
+
+    const any = g.sites || g.sitesBlocked || g.notifications || g.background;
+    openSheet([
+      el('div', { class: 'sheet-head' },
+        el('div', { class: 'sheet-icon' }, iconNode(t)),
+        el('div', { style: { minWidth: '0' } },
+          el('div', { class: 'sheet-title' }, 'Permissions'),
+          el('div', { class: 'sheet-host' }, t.name + ' · ' + t.id + HOST_SUFFIX))),
+      el('div', { style: { borderTop: '1px solid var(--line-soft)' } },
+        sitesRow, notifyRow, wakeRow, ...extra,
+        any ? row('wipe', 'Reset permissions', 'Forget every answer; it asks again', async () => {
+          t.grants = {};
+          delete wakes[t.id];
+          if (NATIVE && V) await V.clearWake({ id: t.id }).catch(() => {});
+          grantsChanged(t);
+          render();
+          again();
+        }, 'danger') : null)
+    ], t.accent);
+  }
+
+  /* ═════════════════════════════════════════════════════════════════
      ANDROID: back button, shortcuts, incoming files
      ═════════════════════════════════════════════════════════════════ */
 
@@ -1444,15 +1859,36 @@ svg { display: block; }
     const m = /^vivarium:\/\/tool\/([a-z0-9-]+)/.exec(url || '');
     return m ? m[1] : null;
   }
+  // vivarium://tool/<id>?nc=1&tag=..&data=..&action=..  is a notification tap.
+  let lastLink = { url: '', at: 0 };
+  function clickFromUrl(url) {
+    const q = String(url || '').split('?')[1];
+    if (!q) return null;
+    const p = new URLSearchParams(q);
+    if (!p.get('nc')) return null;
+    return { tag: p.get('tag') || '', data: p.get('data') || '', action: p.get('action') || '' };
+  }
+  function openLinkUrl(url) {
+    const id = toolIdFromUrl(url);
+    if (!id) return false;
+    // Cold starts can hand the same link over twice.
+    if (url === lastLink.url && Date.now() - lastLink.at < 4000) return true;
+    lastLink = { url, at: Date.now() };
+    openFromShortcut(id, clickFromUrl(url));
+    return true;
+  }
 
-  async function openFromShortcut(id) {
+  async function openFromShortcut(id, click) {
     if (!byId(id)) { toast('That tool isn’t here anymore'); return; }
-    if (toolSt && toolSt.t.id === id) return;
+    if (toolSt && toolSt.t.id === id) {
+      if (click) { if (toolSt.ready) tell(toolSt, Object.assign({ t: 'nclick' }, click)); else toolSt.click = click; }
+      return;
+    }
     if (popSt) popSt.close(null);
     closeSheet(true);
     if (toolSt) await leaveTool();
     lastX = innerWidth / 2; lastY = innerHeight / 2;
-    openTool(id);
+    openTool(id, null, { click });
   }
 
   function wireNative() {
@@ -1467,20 +1903,25 @@ svg { display: block; }
     });
 
     App.addListener('appUrlOpen', (ev) => {
-      const id = toolIdFromUrl(ev && ev.url);
-      if (id) openFromShortcut(id);
-      else sweepInbox();
+      if (!openLinkUrl(ev && ev.url)) sweepInbox();
     });
 
     App.addListener('appStateChange', (st) => {
-      if (st && st.isActive) sweepInbox();
+      if (st && st.isActive) {
+        sweepInbox();
+        Promise.all([refreshWakes(), systemNotify(false)]).then(() => { if (!toolSt) render(); });
+      }
       else if (toolSt) ask(toolSt, 'flush', 1500);   // backgrounded: save, just in case
     });
 
-    App.getLaunchUrl().then((r) => {
-      const id = toolIdFromUrl(r && r.url);
-      if (id) openFromShortcut(id);
-    }).catch(() => {});
+    // The scheduler found the open tool due: it gets the wake instead of a hidden copy.
+    const V = plug('Vivarium');
+    if (V && V.addListener) V.addListener('wake', (d) => {
+      const S = toolSt;
+      if (S && S.ready && d && S.t.id === d.id) tell(S, { t: 'wake', reason: 'schedule', network: d.network || null });
+    });
+
+    App.getLaunchUrl().then((r) => { openLinkUrl(r && r.url); }).catch(() => {});
   }
 
   /* ═════════════════════════════════════════════════════════════════
@@ -1489,6 +1930,7 @@ svg { display: block; }
 
   (async function boot() {
     await loadLibrary();
+    await Promise.all([refreshWakes(), systemNotify(false)]);
     render();
     wireNative();
     await sweepInbox();
