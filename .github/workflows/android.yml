@@ -60,6 +60,31 @@ jobs:
             [ -f "$DIR/$f.java" ] || { echo "::error::native/$f.java is missing"; exit 1; }
           done
 
+      # Capacitor keeps androidx.webkit to itself (an implementation
+      # dependency of its own module), so the app has to ask for it to use
+      # profiles and the background message channel. Same versions Capacitor
+      # pins in variables.gradle.
+      - name: Add the libraries the abilities use
+        run: |
+          python3 - android/app/build.gradle <<'PY'
+          import sys
+          path = sys.argv[1]
+          src = open(path, encoding='utf-8').read()
+          line = "    implementation project(':capacitor-android')"
+          deps = ('    implementation "androidx.webkit:webkit:$androidxWebkitVersion"\n'
+                  '    implementation "androidx.core:core:$androidxCoreVersion"\n')
+          if 'androidx.webkit:webkit' in src:
+              print('Already there.')
+          elif line not in src:
+              print('::error::app/build.gradle changed shape, could not add androidx.webkit')
+              sys.exit(1)
+          else:
+              src = src.replace(line, line + '\n' + deps.rstrip('\n'), 1)
+              open(path, 'w', encoding='utf-8').write(src)
+              print('Dependencies added.')
+          PY
+          grep -n "androidx" android/app/build.gradle
+
       # "Open with" and "Share" for .html files, no cloud backup of the app's
       # data (allowBackup off), and what the tool abilities need: the
       # notification permission, the wake-up job (which survives reboots) and
