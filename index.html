@@ -1918,7 +1918,7 @@ svg { display: block; }
     const V = plug('Vivarium');
     if (V && V.addListener) V.addListener('wake', (d) => {
       const S = toolSt;
-      if (S && S.ready && d && S.t.id === d.id) tell(S, { t: 'wake', reason: 'schedule', network: d.network || null });
+      if (S && S.ready && d && S.t.id === d.id) tell(S, { t: 'wake', reason: d.reason || 'schedule', network: d.network || null });
     });
 
     App.getLaunchUrl().then((r) => { openLinkUrl(r && r.url); }).catch(() => {});
