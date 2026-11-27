@@ -48,6 +48,7 @@ public class WakeJob extends JobService {
         JSONObject grants = readJson(this, "grants.json");
         long now = System.currentTimeMillis();
         Run run = new Run(params);
+        run.manual = only != null;
         synchronized (LOCK) {
             JSONObject w = readJson(this, "wakes.json");
             Iterator<String> it = w.keys();
@@ -81,6 +82,7 @@ public class WakeJob extends JobService {
         final JobParameters params;
         final ArrayDeque<String> due = new ArrayDeque<>();
         boolean stopped;
+        boolean manual;   // "Wake it now": the tool should look even if it just did
         Run(JobParameters p) { params = p; }
 
         void next() {
@@ -94,12 +96,12 @@ public class WakeJob extends JobService {
             }
             if (busy.contains(id)) { MAIN.post(this::next); return; }
             markRun(WakeJob.this, id);
-            if (VivariumPlugin.deliverWake(id)) {
+            if (VivariumPlugin.deliverWake(id, manual)) {
                 MAIN.postDelayed(this::next, 500);
                 return;
             }
             busy.add(id);
-            WakeRunner.run(WakeJob.this, id, (ok) -> {
+            WakeRunner.run(WakeJob.this, id, manual, (ok) -> {
                 busy.remove(id);
                 MAIN.postDelayed(this::next, 800);
             });

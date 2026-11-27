@@ -64,11 +64,12 @@ public class VivariumPlugin extends Plugin {
     }
 
     /** Called by WakeJob: if the tool is open on screen right now, wake that one instead. */
-    static boolean deliverWake(String id) {
+    static boolean deliverWake(String id, boolean manual) {
         VivariumPlugin p = instance;
         if (p == null || !MainActivity.resumed || !id.equals(openTool)) return false;
         JSObject d = new JSObject();
         d.put("id", id);
+        d.put("reason", manual ? "manual" : "schedule");
         try { d.put("network", Abilities.network(p.getContext())); } catch (Exception ignored) {}
         p.notifyListeners("wake", d);
         return true;

@@ -35,7 +35,7 @@ final class WakeRunner {
     private WakeRunner() {}
 
     @SuppressLint("SetJavaScriptEnabled")
-    static void run(Context ctx, String id, Done done) {
+    static void run(Context ctx, String id, boolean manual, Done done) {
         final Context app = ctx.getApplicationContext();
         if (!new File(app.getFilesDir(), "tools/" + id + "/tool.html").isFile() ||
             !WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
@@ -107,7 +107,7 @@ final class WakeRunner {
                     JSONObject m;
                     try { m = new JSONObject(data); } catch (Exception e) { return; }
                     if ("done".equals(m.optString("op"))) { end.done(true); return; }
-                    handle(app, id, grant, m, reply);
+                    handle(app, id, grant, manual, m, reply);
                 });
         } catch (Throwable t) {
             end.done(false);
@@ -117,7 +117,7 @@ final class WakeRunner {
         wv.loadUrl(origin + "/");
     }
 
-    private static void handle(Context app, String id, JSONObject grant, JSONObject m, JavaScriptReplyProxy reply) {
+    private static void handle(Context app, String id, JSONObject grant, boolean manual, JSONObject m, JavaScriptReplyProxy reply) {
         final int seq = m.optInt("seq", 0);
         final String op = m.optString("op", "");
         final JSONObject args = m.optJSONObject("args") != null ? m.optJSONObject("args") : new JSONObject();
@@ -133,6 +133,7 @@ final class WakeRunner {
                     v.put("perms", perms(app, grant));
                     v.put("network", Abilities.network(app));
                     v.put("render", Abilities.canRender());
+                    v.put("reason", manual ? "manual" : "schedule");
                     answer.ok(v);
                     break;
                 }
